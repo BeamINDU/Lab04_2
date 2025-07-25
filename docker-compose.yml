@@ -90,20 +90,20 @@ services:
       retries: 5
 
   # =============================================================================
-  # CORE AI SERVICE - RAG with Multi-Model Support
+  # ENHANCED RAG SERVICE - ⭐ Updated with Enhanced Agent
   # =============================================================================
 
   rag-service:
     build:
       context: .
       dockerfile: Dockerfile.rag
-    container_name: siamtech-rag-service
+    container_name: siamtech-enhanced-rag-service
     ports:
       - "5000:5000"
     environment:
       # External Ollama Server
       - OLLAMA_BASE_URL=http://192.168.11.97:12434
-      - OLLAMA_TIMEOUT=30
+      - OLLAMA_TIMEOUT=60
       
       # Multi-tenant Database Configuration
       - POSTGRES_HOST_COMPANY_A=postgres-company-a
@@ -130,15 +130,34 @@ services:
       - TENANT_CONFIG_FILE=/app/tenant_config.yaml
       - DEFAULT_TENANT=company-a
       
-      # Models Configuration (แยกตาม tenant)
+      # Enhanced Models Configuration (แยกตาม tenant)
       - MODEL_COMPANY_A=llama3.1:8b
-      - MODEL_COMPANY_B=llama3.1:8b  
-      - MODEL_COMPANY_C=llama3.1:8b
+      - MODEL_COMPANY_B=gemma2:9b  
+      - MODEL_COMPANY_C=phi3:14b
       
-      # Debug and Logging
-      - LOG_LEVEL=DEBUG
+      # Enhanced Features Configuration
+      - ENABLE_PATTERN_MATCHING=true
+      - ENABLE_BUSINESS_INTELLIGENCE=true
+      - ENABLE_ADVANCED_PROMPTS=true
+      - ENHANCED_SQL_VALIDATION=true
+      - CONFIDENCE_SCORING=true
+      
+      # Performance Tuning
+      - SQL_GENERATION_TIMEOUT=30
+      - AI_RESPONSE_TIMEOUT=60
+      - MAX_SQL_COMPLEXITY=high
+      - ENABLE_SQL_CACHING=true
+      
+      # Debug and Logging  
+      - LOG_LEVEL=INFO
+      - ENABLE_ENHANCED_LOGGING=true
       - PYTHONUNBUFFERED=1
       - PYTHONPATH=/app
+      
+      # Service Identification
+      - SERVICE_VERSION=2.0.0
+      - AGENT_TYPE=EnhancedPostgresOllamaAgent
+      - PROMPT_VERSION=2.0
       
     networks:
       - siamtech_network
@@ -151,12 +170,16 @@ services:
     healthcheck:
       test: ["CMD", "python", "/app/healthcheck.py"]
       interval: 30s
-      timeout: 10s
+      timeout: 15s
       retries: 3
-      start_period: 40s
+      start_period: 60s
+    labels:
+      - "com.siamtech.service=enhanced-rag"
+      - "com.siamtech.version=2.0"
+      - "com.siamtech.features=smart-sql,business-intelligence"
 
   # =============================================================================
-  # N8N WORKFLOW ORCHESTRATOR - Single Workflow, Multi-Tenant Routing
+  # N8N WORKFLOW ORCHESTRATOR - Updated for Enhanced RAG
   # =============================================================================
 
   n8n:
@@ -177,6 +200,10 @@ services:
       # External Ollama Server
       - OLLAMA_BASE_URL=http://192.168.11.97:12434
       
+      # Enhanced RAG Service URL
+      - RAG_SERVICE_URL=http://rag-service:5000
+      - ENHANCED_RAG_ENDPOINTS=true
+      
       # Multi-tenant Database Configuration (for n8n nodes)
       - POSTGRES_HOST_COMPANY_A=postgres-company-a
       - POSTGRES_PORT_COMPANY_A=5432
@@ -196,13 +223,10 @@ services:
       - POSTGRES_USER_COMPANY_C=postgres
       - POSTGRES_PASSWORD_COMPANY_C=password123
       
-      # Models per Tenant
+      # Enhanced Models per Tenant
       - MODEL_COMPANY_A=llama3.1:8b
       - MODEL_COMPANY_B=gemma2:9b
       - MODEL_COMPANY_C=phi3:14b
-      
-      # RAG Service
-      - RAG_SERVICE_URL=http://rag-service:5000
       
     volumes:
       - n8n_data:/home/node/.n8n
@@ -215,9 +239,12 @@ services:
       - redis
       - rag-service
     restart: unless-stopped
+    labels:
+      - "com.siamtech.service=workflow-orchestrator"
+      - "com.siamtech.integration=enhanced-rag"
 
   # =============================================================================
-  # COMPANY A - BANGKOK HQ (llama3.1:8b model)
+  # COMPANY A - BANGKOK HQ (Enhanced Integration)
   # =============================================================================
   
   openwebui-proxy-company-a:
@@ -234,11 +261,18 @@ services:
       - FORCE_TENANT=company-a 
       - REQUIRE_TENANT_HEADER=false
       - PORT=8001
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
+      
+      # Enhanced RAG Integration
+      - ENHANCED_RAG_SERVICE=http://rag-service:5000
+      - USE_ENHANCED_ENDPOINTS=true
+      - ENABLE_BUSINESS_INTELLIGENCE=true
+      
       # Model specific for Company A
       - TENANT_MODEL=llama3.1:8b
       - OLLAMA_BASE_URL=http://192.168.11.97:12434
+      
     networks:
       - siamtech_network
     depends_on:
@@ -259,15 +293,17 @@ services:
       - "3000:8080"
     environment:
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-a:8001/v1
-      - OPENAI_API_KEY=sk-company-a-llama31-8b
-      - WEBUI_NAME=SiamTech Bangkok HQ - AI Assistant (Llama 3.1 8B)
+      - OPENAI_API_KEY=sk-company-a-enhanced-llama31-8b
+      - WEBUI_NAME=SiamTech Bangkok HQ - Enhanced AI Assistant (v2.0)
       - WEBUI_URL=http://localhost:3000
       - DEFAULT_USER_ROLE=user
       - ENABLE_SIGNUP=true
       - SHOW_ADMIN_DETAILS=false
-      - WEBUI_DESCRIPTION=AI Assistant สำหรับสำนักงานใหญ่ กรุงเทพมหานคร (ใช้โมเดล Llama 3.1 8B)
-      # Theme สำหรับ Company A
+      - WEBUI_DESCRIPTION=Enhanced AI Assistant สำหรับสำนักงานใหญ่ กรุงเทพมหานคร (Smart SQL + Business Intelligence)
+      # Enhanced Theme
       - WEBUI_THEME_COLOR=#667eea
+      - WEBUI_FEATURES=enhanced_sql,business_intelligence,pattern_matching
+      
     volumes:
       - open_webui_company_a_data:/app/backend/data
     networks:
@@ -275,9 +311,12 @@ services:
     depends_on:
       - openwebui-proxy-company-a
     restart: unless-stopped
+    labels:
+      - "com.siamtech.company=a"
+      - "com.siamtech.enhancement=v2.0"
 
   # =============================================================================
-  # COMPANY B - CHIANG MAI REGIONAL (gemma2:9b model)
+  # COMPANY B - CHIANG MAI REGIONAL (Enhanced Integration)
   # =============================================================================
   
   openwebui-proxy-company-b:
@@ -294,11 +333,18 @@ services:
       - FORCE_TENANT=company-b 
       - REQUIRE_TENANT_HEADER=false
       - PORT=8001
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
+      
+      # Enhanced RAG Integration
+      - ENHANCED_RAG_SERVICE=http://rag-service:5000
+      - USE_ENHANCED_ENDPOINTS=true
+      - ENABLE_BUSINESS_INTELLIGENCE=true
+      
       # Model specific for Company B
       - TENANT_MODEL=gemma2:9b
       - OLLAMA_BASE_URL=http://192.168.11.97:12434
+      
     networks:
       - siamtech_network
     depends_on:
@@ -319,15 +365,17 @@ services:
       - "3100:8080"
     environment:
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-b:8001/v1
-      - OPENAI_API_KEY=sk-company-b-gemma2-9b
-      - WEBUI_NAME=SiamTech Chiang Mai - AI Assistant (Gemma2 9B)
+      - OPENAI_API_KEY=sk-company-b-enhanced-gemma2-9b
+      - WEBUI_NAME=SiamTech Chiang Mai - Enhanced AI Assistant (v2.0)
       - WEBUI_URL=http://localhost:3100
       - DEFAULT_USER_ROLE=user
       - ENABLE_SIGNUP=true
       - SHOW_ADMIN_DETAILS=false
-      - WEBUI_DESCRIPTION=AI Assistant สำหรับสาขาภาคเหนือ เชียงใหม่ (ใช้โมเดล Gemma2 9B)
-      # Theme สำหรับ Company B
+      - WEBUI_DESCRIPTION=Enhanced AI Assistant สำหรับสาขาภาคเหนือ เชียงใหม่ (Tourism Intelligence + Smart Analytics)
+      # Enhanced Theme
       - WEBUI_THEME_COLOR=#f093fb
+      - WEBUI_FEATURES=enhanced_sql,tourism_intelligence,regional_analytics
+      
     volumes:
       - open_webui_company_b_data:/app/backend/data
     networks:
@@ -335,9 +383,12 @@ services:
     depends_on:
       - openwebui-proxy-company-b
     restart: unless-stopped
+    labels:
+      - "com.siamtech.company=b"
+      - "com.siamtech.enhancement=v2.0"
 
   # =============================================================================
-  # COMPANY C - INTERNATIONAL (phi3:14b model)
+  # COMPANY C - INTERNATIONAL (Enhanced Integration)
   # =============================================================================
   
   openwebui-proxy-company-c:
@@ -354,11 +405,18 @@ services:
       - FORCE_TENANT=company-c
       - REQUIRE_TENANT_HEADER=false
       - PORT=8001
-      - LOG_LEVEL=DEBUG
+      - LOG_LEVEL=INFO
       - PYTHONUNBUFFERED=1
+      
+      # Enhanced RAG Integration
+      - ENHANCED_RAG_SERVICE=http://rag-service:5000
+      - USE_ENHANCED_ENDPOINTS=true
+      - ENABLE_BUSINESS_INTELLIGENCE=true
+      
       # Model specific for Company C
       - TENANT_MODEL=phi3:14b
       - OLLAMA_BASE_URL=http://192.168.11.97:12434
+      
     networks:
       - siamtech_network
     depends_on:
@@ -379,15 +437,17 @@ services:
       - "3200:8080"
     environment:
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-c:8001/v1
-      - OPENAI_API_KEY=sk-company-c-phi3-14b
-      - WEBUI_NAME=SiamTech International - AI Assistant (Phi3 14B)
+      - OPENAI_API_KEY=sk-company-c-enhanced-phi3-14b
+      - WEBUI_NAME=SiamTech International - Enhanced AI Assistant (v2.0)
       - WEBUI_URL=http://localhost:3200
       - DEFAULT_USER_ROLE=user
       - ENABLE_SIGNUP=true
       - SHOW_ADMIN_DETAILS=false
-      - WEBUI_DESCRIPTION=AI Assistant for Global Operations (Powered by Phi3 14B)
-      # Theme สำหรับ Company C
+      - WEBUI_DESCRIPTION=Enhanced AI Assistant for Global Operations (Global Intelligence + Multi-Currency Analytics)
+      # Enhanced Theme
       - WEBUI_THEME_COLOR=#4facfe
+      - WEBUI_FEATURES=enhanced_sql,global_intelligence,multi_currency_analytics
+      
     volumes:
       - open_webui_company_c_data:/app/backend/data
     networks:
@@ -395,14 +455,17 @@ services:
     depends_on:
       - openwebui-proxy-company-c
     restart: unless-stopped
+    labels:
+      - "com.siamtech.company=c"
+      - "com.siamtech.enhancement=v2.0"
 
   # =============================================================================
-  # ADMIN DASHBOARD
+  # ENHANCED ADMIN DASHBOARD
   # =============================================================================
 
   admin-dashboard:
     image: nginx:alpine
-    container_name: siamtech-admin-dashboard
+    container_name: siamtech-enhanced-admin-dashboard
     ports:
       - "9000:80"
     volumes:
@@ -415,6 +478,9 @@ services:
       interval: 30s
       timeout: 10s
       retries: 3
+    labels:
+      - "com.siamtech.service=admin-dashboard"
+      - "com.siamtech.version=enhanced"
 
 # =============================================================================
 # VOLUMES
@@ -448,3 +514,19 @@ networks:
       config:
         - subnet: 172.25.0.0/16
           gateway: 172.25.0.1
+
+# =============================================================================
+# ENHANCED SYSTEM METADATA
+# =============================================================================
+# Labels for the entire compose stack
+x-siamtech-metadata:
+  version: "2.0.0"
+  enhancement_features:
+    - smart_sql_generation_with_patterns
+    - business_intelligence_insights
+    - enhanced_prompt_engineering_v2
+    - advanced_error_handling
+    - performance_tracking
+    - confidence_scoring
+  description: "Enhanced Multi-Tenant RAG System with Smart SQL Generation and Business Intelligence"
+  upgrade_notes: "Includes enhanced PostgreSQL agent with pattern matching and advanced prompts"
