@@ -1,0 +1,73 @@
+FROM python:3.11-slim
+
+WORKDIR /app
+
+# Install system dependencies
+RUN apt-get update && apt-get install -y \
+    gcc \
+    g++ \
+    libpq-dev \
+    curl \
+    && rm -rf /var/lib/apt/lists/*
+
+# Copy requirements
+COPY requirements.txt .
+
+# Install Python dependencies
+RUN pip install --no-cache-dir --upgrade pip && \
+    pip install --no-cache-dir -r requirements.txt
+
+# Copy configuration files
+COPY tenant_config.yaml .
+
+# Copy application files
+COPY ollama_postgres_agent.py .
+COPY enhanced_multi_agent_service.py .
+
+# Create logs directory
+RUN mkdir -p /app/logs
+
+# Set environment variables
+ENV PYTHONPATH=/app
+ENV PYTHONUNBUFFERED=1
+
+# Health check script
+COPY <<'HEALTH_EOF' /app/healthcheck.py
+#!/usr/bin/env python3
+import requests
+import sys
+import os
+
+try:
+    response = requests.get(
+        f"http://localhost:{os.getenv('PORT', '5000')}/health",
+        timeout=10
+    )
+    if response.status_code == 200:
+        print("Health check passed")
+        sys.exit(0)
+    else:
+        print(f"Health check failed: HTTP {response.status_code}")
+        sys.exit(1)
+except Exception as e:
+    print(f"Health check failed: {e}")
+    sys.exit(1)
+HEALTH_EOF
+
+RUN chmod +x /app/healthcheck.py
+
+# Expose port
+EXPOSE 5000
+
+# Health check
+HEALTHCHECK --interval=30s --timeout=10s --start-period=40s --retries=3 \
+    CMD python /app/healthcheck.py
+
+# Create non-root user
+RUN useradd --create-home --shell /bin/bash siamtech && \
+    chown -R siamtech:siamtech /app
+
+USER siamtech
+
+# Run the enhanced multi-agent service
+CMD ["python", "enhanced_multi_agent_service.py"]
