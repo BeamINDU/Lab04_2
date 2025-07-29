@@ -59,7 +59,7 @@ class PostgresOllamaAgent:
             db_name=os.getenv('POSTGRES_DB_COMPANY_B', 'siamtech_company_b'),
             db_user=os.getenv('POSTGRES_USER_COMPANY_B', 'postgres'),
             db_password=os.getenv('POSTGRES_PASSWORD_COMPANY_B', 'password123'),
-            model_name=os.getenv('MODEL_COMPANY_B', 'gemma2:9b'),
+            model_name=os.getenv('MODEL_COMPANY_B', 'llama3.1:8b'),
             language='th'
         )
         
@@ -72,7 +72,7 @@ class PostgresOllamaAgent:
             db_name=os.getenv('POSTGRES_DB_COMPANY_C', 'siamtech_company_c'),
             db_user=os.getenv('POSTGRES_USER_COMPANY_C', 'postgres'),
             db_password=os.getenv('POSTGRES_PASSWORD_COMPANY_C', 'password123'),
-            model_name=os.getenv('MODEL_COMPANY_C', 'phi3:14b'),
+            model_name=os.getenv('', 'phi3:14b'),
             language='en'
         )
         
