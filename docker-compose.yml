@@ -292,6 +292,10 @@ services:
     ports:
       - "3000:8080"
     environment:
+      - ENV=development
+      - DEFAULT_USER_ROLE=admin
+      - WEBUI_SECRET_KEY=siamtech-secret-2024
+      - ENABLE_SIGNUP=true
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-a:8001/v1
       - OPENAI_API_KEY=sk-company-a-enhanced-llama31-8b
       - WEBUI_NAME=SiamTech Bangkok HQ - Enhanced AI Assistant (v2.0)
@@ -303,6 +307,8 @@ services:
       # Enhanced Theme
       - WEBUI_THEME_COLOR=#667eea
       - WEBUI_FEATURES=enhanced_sql,business_intelligence,pattern_matching
+      - WEBUI_AUTH_REDIRECT_URL=/auth/signin
+      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
       
     volumes:
       - open_webui_company_a_data:/app/backend/data
@@ -364,6 +370,10 @@ services:
     ports:
       - "3100:8080"
     environment:
+      - ENV=development
+      - DEFAULT_USER_ROLE=admin
+      - WEBUI_SECRET_KEY=siamtech-secret-2024
+      - ENABLE_SIGNUP=true
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-b:8001/v1
       - OPENAI_API_KEY=sk-company-b-enhanced-gemma2-9b
       - WEBUI_NAME=SiamTech Chiang Mai - Enhanced AI Assistant (v2.0)
@@ -375,7 +385,8 @@ services:
       # Enhanced Theme
       - WEBUI_THEME_COLOR=#f093fb
       - WEBUI_FEATURES=enhanced_sql,tourism_intelligence,regional_analytics
-      
+      - WEBUI_AUTH_REDIRECT_URL=/auth/signin
+      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
     volumes:
       - open_webui_company_b_data:/app/backend/data
     networks:
@@ -436,6 +447,10 @@ services:
     ports:
       - "3200:8080"
     environment:
+      - ENV=development
+      - DEFAULT_USER_ROLE=admin
+      - WEBUI_SECRET_KEY=siamtech-secret-2024
+      - ENABLE_SIGNUP=true
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-c:8001/v1
       - OPENAI_API_KEY=sk-company-c-enhanced-phi3-14b
       - WEBUI_NAME=SiamTech International - Enhanced AI Assistant (v2.0)
@@ -447,7 +462,8 @@ services:
       # Enhanced Theme
       - WEBUI_THEME_COLOR=#4facfe
       - WEBUI_FEATURES=enhanced_sql,global_intelligence,multi_currency_analytics
-      
+      - WEBUI_AUTH_REDIRECT_URL=/auth/signin
+      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
     volumes:
       - open_webui_company_c_data:/app/backend/data
     networks:
