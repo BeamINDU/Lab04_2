@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
+from intent_classifier import IntentClassifier
 
 # Import the enhanced PostgreSQL + Ollama agent
 from enhanced_postgres_agent import EnhancedPostgresOllamaAgent
@@ -200,17 +201,15 @@ async def enhanced_rag_query(
     request: EnhancedRAGQuery,
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """Enhanced RAG endpoint with smart SQL generation and business intelligence"""
+    """Enhanced RAG endpoint with proper confidence handling"""
     start_time = time.time()
     
-    # Override tenant if provided in request
     if request.tenant_id and validate_tenant_id(request.tenant_id):
         tenant_id = request.tenant_id
     
     try:
-        logger.info(f"Processing enhanced RAG query for {tenant_id}: {request.query[:100]}...")
+        logger.info(f"Processing query for {tenant_id}: {request.query[:100]}...")
         
-        # Process with Enhanced Agent
         result = await enhanced_agent.process_enhanced_question(
             question=request.query,
             tenant_id=tenant_id
@@ -219,8 +218,39 @@ async def enhanced_rag_query(
         response_time = int((time.time() - start_time) * 1000)
         tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
         
-        # Count business insights in response
-        insights_count = result.get('answer', '').count('•') + result.get('answer', '').count('-')
+        # 🔧 แปลง confidence เป็น string อย่างปลอดภัย
+        def normalize_confidence(conf_value):
+            if conf_value is None:
+                return "medium"
+            if isinstance(conf_value, str):
+                return conf_value if conf_value in ["high", "medium", "low", "none"] else "medium"
+            if isinstance(conf_value, (int, float)):
+                if conf_value >= 0.8:
+                    return "high"
+                elif conf_value >= 0.6:
+                    return "medium"
+                elif conf_value > 0:
+                    return "low"
+                else:
+                    return "none"
+            return "medium"
+        
+        # 🔧 แปลง enhancement_features เป็น list อย่างปลอดภัย
+        def normalize_features(features):
+            if features is None:
+                return [
+                    "smart_sql_generation",
+                    "business_intelligence", 
+                    "pattern_matching",
+                    "advanced_prompts"
+                ]
+            if isinstance(features, str):
+                return [features]
+            if isinstance(features, list):
+                return features
+            return []
+        
+        confidence_raw = result.get("confidence", "medium")
         
         return EnhancedRAGResponse(
             answer=result["answer"],
@@ -234,16 +264,12 @@ async def enhanced_rag_query(
             sql_query=result.get("sql_query"),
             db_results_count=result.get("db_results_count"),
             sql_generation_method=result.get("sql_generation_method", "ai_generation"),
-            confidence_level=result.get("confidence", "medium"),
-            business_insights_count=insights_count,
+            confidence_level=normalize_confidence(confidence_raw),  # 🔧 แปลงเป็น string
+            confidence_score=confidence_raw if isinstance(confidence_raw, (int, float)) else None,  # 🔧 เก็บ float แยก
+            business_insights_count=result.get("business_insights_count"),
             processing_time_seconds=result.get("processing_time_seconds"),
             prompt_version="2.0",
-            enhancement_features=[
-                "smart_sql_generation",
-                "business_intelligence",
-                "pattern_matching",
-                "advanced_prompts"
-            ],
+            enhancement_features=normalize_features(result.get("enhancement_features")),  # 🔧 แปลงเป็น list
             fallback_mode=result.get("fallback_mode", False)
         )
         
@@ -258,8 +284,10 @@ async def enhanced_rag_query(
             tenant_name=ENHANCED_TENANT_CONFIGS[tenant_id]["name"],
             agent_type="error_handler",
             response_time_ms=response_time,
-            confidence_level="none",
-            prompt_version="2.0"
+            confidence_level="none",  # 🔧 ใช้ string
+            confidence_score=None,
+            prompt_version="2.0",
+            enhancement_features=[]  # 🔧 ใช้ empty list
         )
 
 @app.post("/smart-sql-generation", response_model=Dict[str, Any])

@@ -83,7 +83,7 @@ tenants:
     ai_model:
       provider: "ollama"
       base_url: "http://13.212.102.46:12434"
-      model_name: "phi3:14b"  # โมเดลสำหรับงาน International
+      model_name: "llama3.1:8b" 
       temperature: 0.6
       max_tokens: 2500
       context_length: 8192

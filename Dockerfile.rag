@@ -24,7 +24,7 @@ COPY tenant_config.yaml .
 COPY ollama_postgres_agent.py .
 COPY enhanced_postgres_agent.py .
 COPY enhanced_multi_agent_service.py .
-
+COPY intent_classifier.py .
 # Verify files are copied correctly
 RUN echo "📁 Verifying copied files:" && \
     ls -la *.py && \

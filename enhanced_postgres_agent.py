@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 import re
 from datetime import datetime
-
+from intent_classifier import IntentClassifier
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -903,10 +903,14 @@ SQL ที่ใช้: {sql_query}
                 "data_source_used": "error",
                 "confidence": "none"
             }
-        
+        intent_classifier = IntentClassifier()
+        intent_result = intent_classifier.classify_intent(question)
         config = self.tenant_configs[tenant_id]
         start_time = datetime.now()
-        
+        if not intent_result['should_use_sql']:
+            return await self._handle_non_sql_question(
+                question, tenant_id, intent_result, config
+            )
         try:
             # 1. Enhanced SQL generation with pattern matching
             sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
@@ -971,7 +975,179 @@ SQL ที่ใช้: {sql_query}
                     "error": str(ai_error),
                     "confidence": "none"
                 }
+    async def _handle_non_sql_question(self, question: str, tenant_id: str, 
+                                    intent_result: dict, config: TenantConfig) -> Dict[str, Any]:
+        """Handle non-SQL questions with AI-generated responses"""
+        
+        intent = intent_result['intent']
+        
+        # สร้าง context ตาม intent แต่ให้ AI สร้างคำตอบ
+        if intent == 'greeting':
+            context_prompt = self._create_greeting_prompt(config)
+        elif intent == 'help':
+            context_prompt = self._create_help_prompt(config)
+        else:
+            context_prompt = self._create_general_conversation_prompt(question, config)
+        
+        # 🆕 ให้ AI สร้างคำตอบแทน hard-code
+        ai_response = await self.call_ollama_api(
+            tenant_id=tenant_id,
+            prompt=context_prompt,
+            context_data="",
+            temperature=0.7  # ใช้ temperature สูงกว่าเพื่อความเป็นธรรมชาติ
+        )
+        
+        return {
+            "answer": ai_response,
+            "success": True,
+            "data_source_used": f"conversational_{config.model_name}",
+            "intent_detected": intent,
+            "intent_confidence": intent_result['confidence'],
+            "sql_used": False,
+            "processing_type": "ai_conversational",  # 🆕 แสดงว่าใช้ AI
+            "tenant_id": tenant_id
+        }
 
+    def _create_greeting_prompt(self, config: TenantConfig) -> str:
+        """Create context-aware greeting prompt for AI"""
+        
+        # ข้อมูลบริษัทแต่ละแห่ง
+        company_context = {
+            'company-a': {
+                'description': 'บริษัทพัฒนาซอฟต์แวร์องค์กร เน้นระบบธนาคารและ E-commerce',
+                'team_size': '15 คน',
+                'specialties': 'ระบบธนาคาร, E-commerce, Enterprise solutions',
+                'example_questions': [
+                    'มีพนักงานกี่คนในแต่ละแผนก',
+                    'โปรเจคไหนมีงบประมาณสูงสุด',
+                    'พนักงานคนไหนทำงานในโปรเจค CRM'
+                ]
+            },
+            'company-b': {
+                'description': 'สาขาภาคเหนือ เชียงใหม่ เน้นเทคโนโลยีการท่องเที่ยว',
+                'team_size': '10 คน',
+                'specialties': 'ระบบโรงแรม, แอพท่องเที่ยว, ระบบจองออนไลน์',
+                'example_questions': [
+                    'โปรเจคของโรงแรมดุสิตมีรายละเอียดอย่างไร',
+                    'พนักงานที่ทำงานโปรเจคท่องเที่ยว',
+                    'ลูกค้าในภาคเหนือมีใครบ้าง'
+                ]
+            },
+            'company-c': {
+                'description': 'International operations สำหรับลูกค้าต่างประเทศ',
+                'team_size': '8 people',
+                'specialties': 'Global platforms, Cross-border systems, International compliance',
+                'example_questions': [
+                    'Which employees work on international projects?',
+                    'What are our highest budget global projects?',
+                    'How many clients do we serve internationally?'
+                ]
+            }
+        }
+        
+        context = company_context.get(config.tenant_id, {})
+        
+        if config.language == 'th':
+            return f"""คุณเป็น AI Assistant ที่เป็นมิตรและมีประโยชน์ของ {config.name}
+
+    ข้อมูลบริษัท:
+    - ชื่อ: {config.name}
+    - ลักษณะงาน: {context.get('description', '')}
+    - ขนาดทีม: {context.get('team_size', '')}
+    - ความเชี่ยวชาญ: {context.get('specialties', '')}
+
+    ความสามารถของคุณ:
+    - วิเคราะห์ข้อมูลพนักงานและโปรเจค
+    - ตอบคำถามเกี่ยวกับธุรกิจและการดำเนินงาน
+    - สร้างรายงานและสถิติต่างๆ
+
+    ตัวอย่างคำถามที่คุณตอบได้:
+    {chr(10).join(f"• {q}" for q in context.get('example_questions', []))}
+
+    ผู้ใช้ทักทายคุณ กรุณาตอบทักทายอย่างเป็นมิตร แนะนำตัวเอง และบอกว่าคุณสามารถช่วยอะไรได้บ้าง:"""
+        
+        else:  # English
+            return f"""You are a friendly and helpful AI Assistant for {config.name}
+
+    Company Information:
+    - Name: {config.name}
+    - Business: {context.get('description', '')}
+    - Team Size: {context.get('team_size', '')}
+    - Specialties: {context.get('specialties', '')}
+
+    Your Capabilities:
+    - Analyze employee and project data
+    - Answer questions about business operations
+    - Generate reports and statistics
+
+    Example questions you can answer:
+    {chr(10).join(f"• {q}" for q in context.get('example_questions', []))}
+
+    The user is greeting you. Please respond in a friendly manner, introduce yourself, and explain how you can help:"""
+
+    def _create_help_prompt(self, config: TenantConfig) -> str:
+        """Create help prompt for AI to generate assistance information"""
+        
+        if config.language == 'th':
+            return f"""คุณเป็น AI Assistant ของ {config.name} ผู้ใช้ถามว่าคุณสามารถช่วยอะไรได้บ้าง
+
+    บริบทบริษัท:
+    - ธุรกิจ: {config.business_type}
+    - ข้อมูลที่มี: พนักงาน, โปรเจค, งบประมาณ, ลูกค้า, แผนกต่างๆ
+
+    ประเภทการวิเคราะห์ที่คุณทำได้:
+    1. ข้อมูลพนักงาน (จำนวน, เงินเดือน, แผนก, ตำแหน่ง)
+    2. ข้อมูลโปรเจค (งบประมาณ, สถานะ, ทีมงาน, ลูกค้า)
+    3. การวิเคราะห์ประสิทธิภาพ (KPI, สถิติ, แนวโน้ม)
+    4. รายงานสำหรับผู้บริหาร
+
+    กรุณาอธิบายความสามารถของคุณอย่างชัดเจนและให้ตัวอย่างคำถามที่เป็นประโยชน์:"""
+        
+        else:
+            return f"""You are an AI Assistant for {config.name}. The user is asking what you can help with.
+
+    Company Context:
+    - Business Type: {config.business_type}
+    - Available Data: employees, projects, budgets, clients, departments
+
+    Types of analysis you can perform:
+    1. Employee data (count, salaries, departments, positions)
+    2. Project information (budgets, status, teams, clients)
+    3. Performance analysis (KPIs, statistics, trends)
+    4. Executive reports
+
+    Please explain your capabilities clearly and provide useful example questions:"""
+
+    def _create_general_conversation_prompt(self, question: str, config: TenantConfig) -> str:
+        """Create prompt for general conversation with AI"""
+        
+        if config.language == 'th':
+            return f"""คุณเป็น AI Assistant ที่เป็นมิตรของ {config.name}
+
+    บริษัทของเรา:
+    - ชื่อ: {config.name}
+    - ประเภทธุรกิจ: {config.business_type}
+    - ความเชี่ยวชาญ: การพัฒนาซอฟต์แวร์และเทคโนโลยี
+
+    คำถามผู้ใช้: {question}
+
+    หากคำถามเกี่ยวข้องกับข้อมูลบริษัท ให้แนะนำว่าคุณสามารถช่วยวิเคราะห์ข้อมูลได้
+    หากเป็นคำถามทั่วไป ให้ตอบอย่างเป็นมิตรและเป็นประโยชน์
+    ไม่ต้องพยายามสร้าง SQL หรือเข้าถึงฐานข้อมูล:"""
+        
+        else:
+            return f"""You are a friendly AI Assistant for {config.name}
+
+    Our Company:
+    - Name: {config.name}
+    - Business Type: {config.business_type}
+    - Expertise: Software development and technology solutions
+
+    User Question: {question}
+
+    If the question relates to company data, suggest that you can help analyze information
+    If it's a general question, respond in a friendly and helpful manner
+    Don't try to generate SQL or access databases:"""
     def _create_enhanced_fallback_prompt(self, question: str, tenant_id: str) -> str:
         """Create enhanced fallback prompt with business context"""
         config = self.tenant_configs[tenant_id]
@@ -1071,11 +1247,12 @@ Provide a professional, informative response:"""
             "prompt": full_prompt,
             "stream": False,
             "options": {
-                "temperature": temperature,
-                "num_predict": 2000 if temperature > 0.5 else 1500,
-                "top_k": 40,
-                "top_p": 0.9,
-                "repeat_penalty": 1.1
+                "temperature": 0.1,
+                "num_predict": 800,      # ลดจาก 2000
+                "top_k": 20,             # ลดจาก 40
+                "top_p": 0.8,           # ลดจาก 0.9
+                "repeat_penalty": 1.0,   # ลดจาก 1.1
+                "num_ctx": 2048         # จำกัด context
             }
         }
         
