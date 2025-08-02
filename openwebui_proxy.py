@@ -26,8 +26,8 @@ class ProxyConfig:
         self.port = int(os.getenv('PORT', '8001'))
         self.tenant_configs = {
             'company-a': {'name': 'SiamTech Bangkok HQ', 'model': 'llama3.1:8b', 'language': 'th', 'webhook_path': 'company-a-chat'},
-            'company-b': {'name': 'SiamTech Chiang Mai Regional', 'model': 'gemma2:9b', 'language': 'th', 'webhook_path': 'company-b-chat'},
-            'company-c': {'name': 'SiamTech International', 'model': 'phi3:14b', 'language': 'en', 'webhook_path': 'company-c-chat'}
+            'company-b': {'name': 'SiamTech Chiang Mai Regional', 'model': 'llama3.1:8b', 'language': 'th', 'webhook_path': 'company-b-chat'},
+            'company-c': {'name': 'SiamTech International', 'model': 'llama3.1:8b', 'language': 'en', 'webhook_path': 'company-c-chat'}
         }
 
 config = ProxyConfig()

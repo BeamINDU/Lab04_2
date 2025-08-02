@@ -10,7 +10,7 @@ tenants:
     # AI Model Configuration
     ai_model:
       provider: "ollama"
-      base_url: "http://192.168.11.97:12434"
+      base_url: "http://13.212.102.46:12434"
       model_name: "llama3.1:8b"  # โมเดลหลักสำหรับ Company A
       temperature: 0.7
       max_tokens: 2000
@@ -46,8 +46,8 @@ tenants:
     # AI Model Configuration  
     ai_model:
       provider: "ollama"
-      base_url: "http://192.168.11.97:12434"
-      model_name: "gemma2:9b"  # โมเดลต่างจาก Company A
+      base_url: "http://13.212.102.46:12434"
+      model_name: "llama3.1:8b"
       temperature: 0.8
       max_tokens: 1500
       context_length: 3072
@@ -82,7 +82,7 @@ tenants:
     # AI Model Configuration
     ai_model:
       provider: "ollama"
-      base_url: "http://192.168.11.97:12434"
+      base_url: "http://13.212.102.46:12434"
       model_name: "phi3:14b"  # โมเดลสำหรับงาน International
       temperature: 0.6
       max_tokens: 2500
@@ -114,16 +114,15 @@ tenants:
 global_settings:
   # Shared Ollama Server
   ollama_server:
-    base_url: "http://192.168.11.97:12434"
+    base_url: "http://13.212.102.46:12434"
     timeout: 30
     retry_attempts: 3
   
   # Available Models (จาก server)
   available_models:
     - "llama3.1:8b"    # Company A
-    - "gemma2:9b"      # Company B  
-    - "phi3:14b"       # Company C
-    - "qwen2:7b"       # Backup
+    - "llama3.1:8b"      # Company B  
+    - "llama3.1:8b"       # Company C
   
   # Security
   security:

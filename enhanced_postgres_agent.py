@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 import re
 from datetime import datetime
-import json
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -32,7 +32,7 @@ class EnhancedPostgresOllamaAgent:
     """Enhanced PostgreSQL + Ollama Agent with Advanced Prompts v2.0"""
     
     def __init__(self):
-        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://192.168.11.97:12434')
+        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434')
         self.tenant_configs = self._load_enhanced_tenant_configs()
         self.database_schemas = self._load_enhanced_database_schemas()
         self.business_logic_mappings = self._load_business_logic_mappings()
@@ -66,7 +66,7 @@ class EnhancedPostgresOllamaAgent:
             db_name=os.getenv('POSTGRES_DB_COMPANY_B', 'siamtech_company_b'),
             db_user=os.getenv('POSTGRES_USER_COMPANY_B', 'postgres'),
             db_password=os.getenv('POSTGRES_PASSWORD_COMPANY_B', 'password123'),
-            model_name=os.getenv('MODEL_COMPANY_B', 'llama3.1:8b'),
+            model_name=os.getenv('MODEL_COMPANY_B', 'gemma2:9b'),
             language='th',
             business_type='tourism_hospitality',
             key_metrics=['client_count', 'regional_budget', 'tourism_projects', 'local_team']
@@ -81,7 +81,7 @@ class EnhancedPostgresOllamaAgent:
             db_name=os.getenv('POSTGRES_DB_COMPANY_C', 'siamtech_company_c'),
             db_user=os.getenv('POSTGRES_USER_COMPANY_C', 'postgres'),
             db_password=os.getenv('POSTGRES_PASSWORD_COMPANY_C', 'password123'),
-            model_name=os.getenv('MODEL_COMPANY_C', 'llama3.1:8b'),
+            model_name=os.getenv('MODEL_COMPANY_C', 'phi3:14b'),
             language='en',
             business_type='global_operations',
             key_metrics=['usd_revenue', 'international_clients', 'global_projects', 'multi_currency']
@@ -384,13 +384,12 @@ class EnhancedPostgresOllamaAgent:
         system_prompt = self._create_enhanced_sql_prompt(question, schema_info, business_logic, config)
         
         try:
-            # Call AI with enhanced prompt - ใช้ non-streaming สำหรับ SQL generation เพื่อความแม่นยำ
+            # Call AI with enhanced prompt
             ai_response = await self.call_ollama_api(
                 tenant_id=tenant_id,
                 prompt=system_prompt,
                 context_data="",
-                temperature=0.1,  # Low temperature for precise SQL
-                stream=False  # SQL generation ควรใช้ non-streaming
+                temperature=0.1  # Low temperature for precise SQL
             )
             
             # Extract and validate SQL
@@ -413,7 +412,6 @@ class EnhancedPostgresOllamaAgent:
                 'confidence': 'low'
             }
             return fallback_sql, metadata
-
 
     def _analyze_question_intent(self, question: str, tenant_id: str) -> Dict[str, Any]:
         """Analyze question to determine intent and suggest patterns"""
@@ -897,7 +895,7 @@ SQL ที่ใช้: {sql_query}
         return "\n".join(insights) if insights else "ไม่พบรูปแบบที่น่าสนใจในข้อมูล"
 
     async def process_enhanced_question(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """Enhanced question processing - ใช้ streaming สำหรับ interpretation"""
+        """Enhanced question processing with comprehensive business intelligence"""
         if tenant_id not in self.tenant_configs:
             return {
                 "answer": f"ไม่รู้จัก tenant: {tenant_id}",
@@ -910,23 +908,21 @@ SQL ที่ใช้: {sql_query}
         start_time = datetime.now()
         
         try:
-            # 1. Enhanced SQL generation (non-streaming)
+            # 1. Enhanced SQL generation with pattern matching
             sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
             
             # 2. Execute SQL query
             db_results = self.execute_sql_query(tenant_id, sql_query)
             
-            # 3. Enhanced interpretation with streaming for better UX
+            # 3. Enhanced interpretation with business intelligence
             interpretation_prompt = await self.create_enhanced_interpretation_prompt(
                 question, sql_query, db_results, tenant_id
             )
             
-            # ใช้ streaming สำหรับ interpretation เพื่อให้ user เห็น response แบบ real-time
             ai_response = await self.call_ollama_api(
                 tenant_id, 
                 interpretation_prompt, 
-                temperature=0.3,
-                stream=True  # เปิดใช้ streaming สำหรับการตีความ
+                temperature=0.3  # Slightly higher for more natural language
             )
             
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -944,21 +940,16 @@ SQL ที่ใช้: {sql_query}
                 "confidence": sql_metadata['confidence'],
                 "processing_time_seconds": processing_time,
                 "business_context": config.business_type,
-                "enhancement_version": "2.0",
-                "streaming_enabled": True  # บอกว่าใช้ streaming
+                "enhancement_version": "2.0"
             }
             
         except Exception as e:
             logger.error(f"Enhanced processing failed for {tenant_id}: {e}")
             
-            # Enhanced fallback ยังคงใช้ streaming
+            # Enhanced fallback with better error handling
             try:
                 fallback_prompt = self._create_enhanced_fallback_prompt(question, tenant_id)
-                ai_response = await self.call_ollama_api(
-                    tenant_id, 
-                    fallback_prompt, 
-                    stream=True  # ใช้ streaming สำหรับ fallback ด้วย
-                )
+                ai_response = await self.call_ollama_api(tenant_id, fallback_prompt)
                 
                 processing_time = (datetime.now() - start_time).total_seconds()
                 
@@ -970,8 +961,7 @@ SQL ที่ใช้: {sql_query}
                     "fallback_mode": True,
                     "confidence": "low",
                     "processing_time_seconds": processing_time,
-                    "enhancement_version": "2.0",
-                    "streaming_enabled": True
+                    "enhancement_version": "2.0"
                 }
             except Exception as ai_error:
                 return {
@@ -981,6 +971,7 @@ SQL ที่ใช้: {sql_query}
                     "error": str(ai_error),
                     "confidence": "none"
                 }
+
     def _create_enhanced_fallback_prompt(self, question: str, tenant_id: str) -> str:
         """Create enhanced fallback prompt with business context"""
         config = self.tenant_configs[tenant_id]
@@ -1064,8 +1055,8 @@ Provide a professional, informative response:"""
             if conn:
                 conn.close()
     
-    async def call_ollama_api(self, tenant_id: str, prompt: str, context_data: str = "", temperature: float = 0.7, stream: bool = False) -> str:
-        """Enhanced Ollama API call with proper streaming support"""
+    async def call_ollama_api(self, tenant_id: str, prompt: str, context_data: str = "", temperature: float = 0.7) -> str:
+        """Enhanced Ollama API call with better error handling"""
         config = self.tenant_configs[tenant_id]
         
         # Prepare system prompt
@@ -1078,7 +1069,7 @@ Provide a professional, informative response:"""
         payload = {
             "model": config.model_name,
             "prompt": full_prompt,
-            "stream": stream,
+            "stream": False,
             "options": {
                 "temperature": temperature,
                 "num_predict": 2000 if temperature > 0.5 else 1500,
@@ -1093,64 +1084,13 @@ Provide a professional, informative response:"""
                 async with session.post(
                     f"{self.ollama_base_url}/api/generate",
                     json=payload,
-                    timeout=aiohttp.ClientTimeout(total=90)
+                    timeout=aiohttp.ClientTimeout(total=90)  # Increased timeout
                 ) as response:
-                    
                     if response.status == 200:
-                        if stream:
-                            # Handle NDJSON streaming response
-                            full_response = ""
-                            buffer = ""
-                            
-                            # อ่านข้อมูลเป็น chunks
-                            async for chunk in response.content.iter_any():
-                                buffer += chunk.decode('utf-8')
-                                
-                                # ประมวลผลทีละบรรทัด
-                                while '\n' in buffer:
-                                    line, buffer = buffer.split('\n', 1)
-                                    line = line.strip()
-                                    
-                                    if line:  # ข้าม empty lines
-                                        try:
-                                            # Parse JSON object จากแต่ละบรรทัด
-                                            json_response = json.loads(line)
-                                            
-                                            # รวบรวม response text
-                                            if 'response' in json_response and json_response['response']:
-                                                full_response += json_response['response']
-                                            
-                                            # ตรวจสอบว่าจบแล้วหรือยัง
-                                            if json_response.get('done', False):
-                                                logger.info(f"✅ Streaming complete. Response length: {len(full_response)}")
-                                                return full_response if full_response else 'ไม่สามารถรับคำตอบจาก AI ได้'
-                                                
-                                        except json.JSONDecodeError as e:
-                                            logger.warning(f"Failed to parse JSON line: {line[:100]}... Error: {e}")
-                                            continue
-                            
-                            # ประมวลผล buffer ที่เหลือ (ถ้ามี)
-                            if buffer.strip():
-                                try:
-                                    json_response = json.loads(buffer.strip())
-                                    if 'response' in json_response and json_response['response']:
-                                        full_response += json_response['response']
-                                    if json_response.get('done', False):
-                                        return full_response if full_response else 'ไม่สามารถรับคำตอบจาก AI ได้'
-                                except json.JSONDecodeError:
-                                    logger.warning(f"Failed to parse final buffer: {buffer[:100]}...")
-                            
-                            return full_response if full_response else 'ไม่สามารถรับคำตอบจาก AI ได้'
-                        
-                        else:
-                            # Handle non-streaming response (regular JSON)
-                            result = await response.json()
-                            return result.get('response', 'ไม่สามารถรับคำตอบจาก AI ได้')
-                            
+                        result = await response.json()
+                        return result.get('response', 'ไม่สามารถรับคำตอบจาก AI ได้')
                     else:
                         logger.error(f"Enhanced Ollama API error: {response.status}")
-                        error_text = await response.text()
-                        logger.error(f"Error details: {error_text[:300]}...")
                         return f"เกิดข้อผิดพลาดในการเรียก AI (HTTP {response.status})"
                         
         except asyncio.TimeoutError:
@@ -1159,6 +1099,7 @@ Provide a professional, informative response:"""
         except Exception as e:
             logger.error(f"Enhanced Ollama API call failed: {e}")
             return f"เกิดข้อผิดพลาดในการเรียก AI: {str(e)}"
+
 # For testing the enhanced agent
 async def test_enhanced_agent():
     """Test the enhanced agent with sample questions"""

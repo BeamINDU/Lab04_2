@@ -151,7 +151,7 @@ async def enhanced_health_check():
             "progressive_fallback_strategies"
         ],
         "tenants": list(ENHANCED_TENANT_CONFIGS.keys()),
-        "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://192.168.11.97:12434'),
+        "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434'),
         "agent_type": "EnhancedPostgresOllamaAgent",
         "prompt_version": "2.0",
         "timestamp": datetime.now().isoformat()
@@ -542,7 +542,7 @@ async def enhanced_tenant_status(tenant_id: str):
             },
             
             "configuration": {
-                "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://192.168.11.97:12434'),
+                "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434'),
                 "prompt_version": "2.0",
                 "agent_version": "EnhancedPostgresOllamaAgent",
                 "enhancement_level": "production_ready"
@@ -627,7 +627,7 @@ if __name__ == "__main__":
     print("   • Structured Business Analysis Responses")
     print("")
     print(f"📊 Tenants: {list(ENHANCED_TENANT_CONFIGS.keys())}")
-    print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://192.168.11.97:12434')}")
+    print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434')}")
     print(f"🗄️  Database: Multi-tenant PostgreSQL with Enhanced Intelligence")
     print(f"🎯 Agent: EnhancedPostgresOllamaAgent v2.0")
     print(f"📈 Expected Improvements: 75%+ better response quality")
