@@ -29,7 +29,7 @@ class PostgresOllamaAgent:
     """Enhanced PostgreSQL + Ollama Agent with AI-Generated SQL"""
     
     def __init__(self):
-        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434')
+        self.ollama_base_url = os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434')
         self.tenant_configs = self._load_tenant_configs()
         self.database_schemas = self._load_database_schemas()
         

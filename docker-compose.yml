@@ -102,7 +102,7 @@ services:
       - "5000:5000"
     environment:
       # External Ollama Server
-      - OLLAMA_BASE_URL=http://13.212.102.46:12434
+      - OLLAMA_BASE_URL=http://52.74.36.160:12434
       - OLLAMA_TIMEOUT=60
       
       # Multi-tenant Database Configuration
@@ -198,7 +198,7 @@ services:
       - WEBHOOK_URL=http://localhost:5678
       
       # External Ollama Server
-      - OLLAMA_BASE_URL=http://13.212.102.46:12434
+      - OLLAMA_BASE_URL=http://52.74.36.160:12434
       
       # Enhanced RAG Service URL
       - RAG_SERVICE_URL=http://rag-service:5000
@@ -271,7 +271,7 @@ services:
       
       # Model specific for Company A
       - TENANT_MODEL=llama3.1:8b
-      - OLLAMA_BASE_URL=http://13.212.102.46:12434
+      - OLLAMA_BASE_URL=http://52.74.36.160:12434
       
     networks:
       - siamtech_network
@@ -349,7 +349,7 @@ services:
       
       # Model specific for Company B
       - TENANT_MODEL=llama3.1:8b
-      - OLLAMA_BASE_URL=http://13.212.102.46:12434
+      - OLLAMA_BASE_URL=http://52.74.36.160:12434
       
     networks:
       - siamtech_network
@@ -426,7 +426,7 @@ services:
       
       # Model specific for Company C
       - TENANT_MODEL=llama3.1:8b
-      - OLLAMA_BASE_URL=http://13.212.102.46:12434
+      - OLLAMA_BASE_URL=http://52.74.36.160:12434
       
     networks:
       - siamtech_network

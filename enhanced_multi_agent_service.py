@@ -9,7 +9,10 @@ from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
 from intent_classifier import IntentClassifier
-
+from fastapi.responses import StreamingResponse
+import asyncio
+from typing import AsyncGenerator
+import json
 # Import the enhanced PostgreSQL + Ollama agent
 from enhanced_postgres_agent import EnhancedPostgresOllamaAgent
 
@@ -152,7 +155,7 @@ async def enhanced_health_check():
             "progressive_fallback_strategies"
         ],
         "tenants": list(ENHANCED_TENANT_CONFIGS.keys()),
-        "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434'),
+        "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434'),
         "agent_type": "EnhancedPostgresOllamaAgent",
         "prompt_version": "2.0",
         "timestamp": datetime.now().isoformat()
@@ -414,74 +417,180 @@ async def legacy_smart_sql_query(
 # ENHANCED OPENAI COMPATIBILITY
 # =============================================================================
 
+@app.post("/enhanced-rag-query-stream")
+async def enhanced_rag_query_stream(
+    request: EnhancedRAGQuery,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """🔥 NEW: Streaming RAG endpoint with real-time response"""
+    
+    if request.tenant_id and validate_tenant_id(request.tenant_id):
+        tenant_id = request.tenant_id
+
+    async def generate_streaming_response():
+        try:
+            config = ENHANCED_TENANT_CONFIGS[tenant_id]
+            
+            # 📊 Send initial metadata
+            metadata = {
+                "type": "metadata",
+                "tenant_id": tenant_id,
+                "tenant_name": config["name"],
+                "model": config["model"],
+                "status": "started"
+            }
+            yield f"data: {json.dumps(metadata)}\n\n"
+
+            # 🔥 Process question with streaming
+            async for chunk in enhanced_agent.process_enhanced_question_streaming(
+                request.query, tenant_id
+            ):
+                yield f"data: {json.dumps(chunk)}\n\n"
+                
+                # Small delay for smooth streaming
+                await asyncio.sleep(0.01)
+
+        except Exception as e:
+            error_data = {
+                "type": "error",
+                "message": f"เกิดข้อผิดพลาด: {str(e)}"
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+    return StreamingResponse(
+        generate_streaming_response(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
+    )
+
 @app.post("/v1/chat/completions")
 async def enhanced_openai_chat_completions(
     request: Dict[str, Any],
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """Enhanced OpenAI-compatible chat completions with business intelligence"""
+    """🔥 UPDATED: OpenAI-compatible endpoint with streaming support"""
     try:
         messages = request.get("messages", [])
+        stream = request.get("stream", False)  # 🔥 Check stream parameter
+        
         if not messages:
             raise HTTPException(400, "No messages provided")
         
-        # Extract the last user message
         user_message = messages[-1].get("content", "")
         
-        # Process with Enhanced Agent
-        result = await enhanced_agent.process_enhanced_question(
-            question=user_message,
-            tenant_id=tenant_id
-        )
+        # 🚀 If streaming requested
+        if stream:
+            async def generate_openai_streaming():
+                try:
+                    config = ENHANCED_TENANT_CONFIGS[tenant_id]
+                    
+                    # Send initial chunk
+                    initial_chunk = {
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": f"siamtech-enhanced-{config['model']}",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None
+                        }]
+                    }
+                    yield f"data: {json.dumps(initial_chunk)}\n\n"
+                    
+                    # 🔥 Stream the actual response
+                    async for chunk in enhanced_agent.process_enhanced_question_streaming(
+                        user_message, tenant_id
+                    ):
+                        if chunk.get("type") == "answer_chunk":
+                            openai_chunk = {
+                                "id": f"chatcmpl-{int(time.time())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(time.time()),
+                                "model": f"siamtech-enhanced-{config['model']}",
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"content": chunk["content"]},
+                                    "finish_reason": None
+                                }]
+                            }
+                            yield f"data: {json.dumps(openai_chunk)}\n\n"
+                    
+                    # Final chunk
+                    final_chunk = {
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": f"siamtech-enhanced-{config['model']}",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(final_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    
+                except Exception as e:
+                    error_chunk = {
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": f"siamtech-enhanced-{config['model']}",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": f"\n\n❌ เกิดข้อผิดพลาด: {str(e)}"},
+                            "finish_reason": "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(error_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+            
+            return StreamingResponse(
+                generate_openai_streaming(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive"
+                }
+            )
         
-        tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
-        
-        # Format as enhanced OpenAI response
-        return {
-            "id": f"chatcmpl-enhanced-{int(time.time())}",
-            "object": "chat.completion",
-            "created": int(time.time()),
-            "model": f"siamtech-enhanced-{tenant_config['model']}",
-            "choices": [
-                {
+        # 🔄 Non-streaming (existing behavior)
+        else:
+            result = await enhanced_agent.process_enhanced_question(
+                question=user_message,
+                tenant_id=tenant_id
+            )
+            
+            config = ENHANCED_TENANT_CONFIGS[tenant_id]
+            
+            return {
+                "id": f"chatcmpl-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": f"siamtech-enhanced-{config['model']}",
+                "choices": [{
                     "index": 0,
                     "message": {
-                        "role": "assistant",
+                        "role": "assistant", 
                         "content": result["answer"]
                     },
                     "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": len(user_message.split()),
+                    "completion_tokens": len(result["answer"].split()),
+                    "total_tokens": len(user_message.split()) + len(result["answer"].split())
                 }
-            ],
-            "usage": {
-                "prompt_tokens": len(user_message.split()),
-                "completion_tokens": len(result["answer"].split()),
-                "total_tokens": len(user_message.split()) + len(result["answer"].split())
-            },
-            "system_fingerprint": f"siamtech-enhanced-v2-{tenant_id}",
-            "siamtech_enhanced_metadata": {
-                "tenant_id": tenant_id,
-                "tenant_name": tenant_config["name"],
-                "business_type": tenant_config["business_type"],
-                "data_source": result.get("data_source_used"),
-                "sql_query": result.get("sql_query"),
-                "db_results_count": result.get("db_results_count"),
-                "sql_generation_method": result.get("sql_generation_method"),
-                "confidence_level": result.get("confidence"),
-                "processing_time_seconds": result.get("processing_time_seconds"),
-                "enhancement_version": "2.0",
-                "features_used": [
-                    "smart_sql_generation",
-                    "business_intelligence", 
-                    "pattern_matching",
-                    "enhanced_prompts"
-                ]
             }
-        }
-        
+            
     except Exception as e:
-        logger.error(f"Error in enhanced chat completions for {tenant_id}: {e}")
         raise HTTPException(500, f"Enhanced chat completions failed: {str(e)}")
-
 # =============================================================================
 # MONITORING & ANALYTICS ENDPOINTS
 # =============================================================================
@@ -570,7 +679,7 @@ async def enhanced_tenant_status(tenant_id: str):
             },
             
             "configuration": {
-                "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434'),
+                "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434'),
                 "prompt_version": "2.0",
                 "agent_version": "EnhancedPostgresOllamaAgent",
                 "enhancement_level": "production_ready"
@@ -582,6 +691,7 @@ async def enhanced_tenant_status(tenant_id: str):
     except Exception as e:
         logger.error(f"Error getting enhanced status for {tenant_id}: {e}")
         raise HTTPException(500, f"Enhanced status check failed: {str(e)}")
+
 
 @app.get("/system/enhancement-metrics")
 async def system_enhancement_metrics():
@@ -655,7 +765,7 @@ if __name__ == "__main__":
     print("   • Structured Business Analysis Responses")
     print("")
     print(f"📊 Tenants: {list(ENHANCED_TENANT_CONFIGS.keys())}")
-    print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://13.212.102.46:12434')}")
+    print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434')}")
     print(f"🗄️  Database: Multi-tenant PostgreSQL with Enhanced Intelligence")
     print(f"🎯 Agent: EnhancedPostgresOllamaAgent v2.0")
     print(f"📈 Expected Improvements: 75%+ better response quality")
