@@ -37,7 +37,6 @@ class EnhancedPostgresOllamaAgent:
         self.database_schemas = self._load_enhanced_database_schemas()
         self.business_logic_mappings = self._load_business_logic_mappings()
         self.sql_patterns = self._load_sql_patterns()
-        self.intent_classifier = IntentClassifier()
         
     def _load_enhanced_tenant_configs(self) -> Dict[str, TenantConfig]:
         """Load enhanced tenant configurations"""
@@ -361,156 +360,7 @@ class EnhancedPostgresOllamaAgent:
                 }
             }
         }
-    async def call_ollama_api_streaming(
-        self, 
-        tenant_id: str, 
-        prompt: str, 
-        context_data: str = "", 
-        temperature: float = 0.7
-    ):
-        """🔥 NEW: Streaming version of call_ollama_api"""
-        config = self.tenant_configs[tenant_id]
-        
-        # Prepare system prompt
-        if context_data:
-            full_prompt = f"{prompt}\n\nContext Data:\n{context_data}\n\nAssistant:"
-        else:
-            full_prompt = f"{prompt}\n\nAssistant:"
-        
-        # Prepare request payload with streaming enabled
-        payload = {
-            "model": config.model_name,
-            "prompt": full_prompt,
-            "stream": True,  # 🔥 Enable streaming!
-            "options": {
-                "temperature": temperature,
-                "num_predict": 800,
-                "top_k": 20,
-                "top_p": 0.8,
-                "repeat_penalty": 1.0,
-                "num_ctx": 2048
-            }
-        }
-        
-        try:
-            async with aiohttp.ClientSession() as session:
-                async with session.post(
-                    f"{self.ollama_base_url}/api/generate",
-                    json=payload,
-                    timeout=aiohttp.ClientTimeout(total=120)
-                ) as response:
-                    if response.status == 200:
-                        # 🔥 Process streaming response
-                        async for line in response.content:
-                            if line:
-                                try:
-                                    data = json.loads(line.decode('utf-8'))
-                                    if 'response' in data and data['response']:
-                                        # Yield each token as it comes
-                                        yield data['response']
-                                    
-                                    # Check if streaming is complete
-                                    if data.get('done', False):
-                                        break
-                                        
-                                except json.JSONDecodeError:
-                                    # Skip invalid JSON lines
-                                    continue
-                    else:
-                        yield f"เกิดข้อผิดพลาดในการเรียก AI (HTTP {response.status})"
-                        
-        except asyncio.TimeoutError:
-            yield "AI ใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง"
-        except Exception as e:
-            yield f"เกิดข้อผิดพลาดในการเรียก AI: {str(e)}"
 
-    async def process_enhanced_question_streaming(self, question: str, tenant_id: str):
-        """🔥 NEW: Streaming version of process_enhanced_question"""
-        if tenant_id not in self.tenant_configs:
-            yield {
-                "type": "error",
-                "message": f"ไม่รู้จัก tenant: {tenant_id}"
-            }
-            return
-
-        config = self.tenant_configs[tenant_id]
-        start_time = datetime.now()
-
-        try:
-            # 📊 Step 1: Generate SQL (non-streaming)
-            yield {
-                "type": "status",
-                "message": "🔍 กำลังสร้าง SQL Query...",
-                "step": "sql_generation"
-            }
-            
-            sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
-            
-            yield {
-                "type": "sql_generated",
-                "sql_query": sql_query,
-                "method": sql_metadata["method"],
-                "confidence": sql_metadata["confidence"]
-            }
-
-            # 🗄️ Step 2: Execute SQL
-            yield {
-                "type": "status", 
-                "message": "📊 กำลังดึงข้อมูลจากฐานข้อมูล...",
-                "step": "database_query"
-            }
-            
-            db_results = self.execute_sql_query(tenant_id, sql_query)
-            
-            yield {
-                "type": "db_results",
-                "count": len(db_results),
-                "preview": db_results[:3] if db_results else []
-            }
-
-            # 🤖 Step 3: Create interpretation prompt
-            interpretation_prompt = await self.create_enhanced_interpretation_prompt(
-                question, sql_query, db_results, tenant_id
-            )
-
-            # 🔥 Step 4: Stream AI response
-            yield {
-                "type": "status",
-                "message": "🤖 AI กำลังวิเคราะห์และตอบคำถาม...",
-                "step": "ai_processing"
-            }
-            
-            yield {"type": "answer_start"}
-
-            # Stream the AI response token by token
-            async for token in self.call_ollama_api_streaming(
-                tenant_id, interpretation_prompt, temperature=0.3
-            ):
-                yield {
-                    "type": "answer_chunk",
-                    "content": token
-                }
-
-            # ✅ Final metadata
-            processing_time = (datetime.now() - start_time).total_seconds()
-            
-            yield {
-                "type": "answer_complete",
-                "sql_query": sql_query,
-                "db_results_count": len(db_results),
-                "sql_generation_method": sql_metadata["method"],
-                "confidence": sql_metadata["confidence"],
-                "processing_time_seconds": processing_time,
-                "tenant_id": tenant_id,
-                "model_used": config.model_name
-            }
-
-        except Exception as e:
-            logger.error(f"Enhanced streaming processing failed for {tenant_id}: {e}")
-            yield {
-                "type": "error",
-                "message": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
-            }
     async def generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
         """Enhanced SQL generation with business intelligence and pattern matching"""
         config = self.tenant_configs[tenant_id]
@@ -1045,7 +895,7 @@ SQL ที่ใช้: {sql_query}
         return "\n".join(insights) if insights else "ไม่พบรูปแบบที่น่าสนใจในข้อมูล"
 
     async def process_enhanced_question(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """Enhanced question processing with intent classification"""
+        """Enhanced question processing with comprehensive business intelligence"""
         if tenant_id not in self.tenant_configs:
             return {
                 "answer": f"ไม่รู้จัก tenant: {tenant_id}",
@@ -1053,40 +903,30 @@ SQL ที่ใช้: {sql_query}
                 "data_source_used": "error",
                 "confidence": "none"
             }
-
+        intent_classifier = IntentClassifier()
+        intent_result = intent_classifier.classify_intent(question)
         config = self.tenant_configs[tenant_id]
         start_time = datetime.now()
-        
-        # 🔥 ใช้ Intent Classifier ตรวจสอบก่อน
-        intent_result = self.intent_classifier.classify_intent(question)
-        logger.info(f"Intent classification for '{question}': {intent_result}")
-        
-        # 🎯 ถ้าไม่ใช่คำถามที่ต้องใช้ SQL
         if not intent_result['should_use_sql']:
             return await self._handle_non_sql_question(
                 question, tenant_id, intent_result, config
             )
-        
-        # 🗄️ ถ้าเป็นคำถามที่ต้องใช้ SQL (เดิม)
         try:
-            # 1. Enhanced SQL generation
+            # 1. Enhanced SQL generation with pattern matching
             sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
             
             # 2. Execute SQL query
             db_results = self.execute_sql_query(tenant_id, sql_query)
             
-            # 🔧 3. Convert Decimal to float before JSON serialization
-            processed_results = self._process_decimal_data(db_results)
-            
-            # 4. Enhanced interpretation
+            # 3. Enhanced interpretation with business intelligence
             interpretation_prompt = await self.create_enhanced_interpretation_prompt(
-                question, sql_query, processed_results, tenant_id
+                question, sql_query, db_results, tenant_id
             )
             
             ai_response = await self.call_ollama_api(
                 tenant_id, 
                 interpretation_prompt, 
-                temperature=0.3
+                temperature=0.3  # Slightly higher for more natural language
             )
             
             processing_time = (datetime.now() - start_time).total_seconds()
@@ -1096,20 +936,21 @@ SQL ที่ใช้: {sql_query}
                 "success": True,
                 "data_source_used": f"enhanced_sql_{config.model_name}",
                 "sql_query": sql_query,
-                "db_results_count": len(processed_results),
+                "db_results_count": len(db_results),
                 "tenant_id": tenant_id,
                 "model_used": config.model_name,
-                "sql_generation_method": sql_metadata["method"],
-                "confidence": sql_metadata["confidence"],
+                "ai_generated_sql": True,
+                "sql_generation_method": sql_metadata['method'],
+                "confidence": sql_metadata['confidence'],
                 "processing_time_seconds": processing_time,
-                "intent_detected": intent_result['intent'],
-                "enhancement_version": "2.1"
+                "business_context": config.business_type,
+                "enhancement_version": "2.0"
             }
             
         except Exception as e:
             logger.error(f"Enhanced processing failed for {tenant_id}: {e}")
             
-            # Enhanced fallback
+            # Enhanced fallback with better error handling
             try:
                 fallback_prompt = self._create_enhanced_fallback_prompt(question, tenant_id)
                 ai_response = await self.call_ollama_api(tenant_id, fallback_prompt)
@@ -1124,8 +965,7 @@ SQL ที่ใช้: {sql_query}
                     "fallback_mode": True,
                     "confidence": "low",
                     "processing_time_seconds": processing_time,
-                    "intent_detected": intent_result['intent'],
-                    "enhancement_version": "2.1"
+                    "enhancement_version": "2.0"
                 }
             except Exception as ai_error:
                 return {
@@ -1135,30 +975,13 @@ SQL ที่ใช้: {sql_query}
                     "error": str(ai_error),
                     "confidence": "none"
                 }
-
-    def _process_decimal_data(self, data: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        """🔧 Convert Decimal objects to float for JSON serialization"""
-        processed_data = []
-        
-        for row in data:
-            processed_row = {}
-            for key, value in row.items():
-                if isinstance(value, Decimal):
-                    # Convert Decimal to float
-                    processed_row[key] = float(value)
-                else:
-                    processed_row[key] = value
-            processed_data.append(processed_row)
-        
-        return processed_data
-
     async def _handle_non_sql_question(self, question: str, tenant_id: str, 
-                                    intent_result: dict, config) -> Dict[str, Any]:
-        """🔥 Handle non-SQL questions with AI-generated responses"""
+                                    intent_result: dict, config: TenantConfig) -> Dict[str, Any]:
+        """Handle non-SQL questions with AI-generated responses"""
         
         intent = intent_result['intent']
         
-        # สร้าง context-aware prompt ตาม intent
+        # สร้าง context ตาม intent แต่ให้ AI สร้างคำตอบ
         if intent == 'greeting':
             context_prompt = self._create_greeting_prompt(config)
         elif intent == 'help':
@@ -1166,7 +989,7 @@ SQL ที่ใช้: {sql_query}
         else:
             context_prompt = self._create_general_conversation_prompt(question, config)
         
-        # 🔥 ให้ AI สร้างคำตอบ
+        # 🆕 ให้ AI สร้างคำตอบแทน hard-code
         ai_response = await self.call_ollama_api(
             tenant_id=tenant_id,
             prompt=context_prompt,
@@ -1181,117 +1004,10 @@ SQL ที่ใช้: {sql_query}
             "intent_detected": intent,
             "intent_confidence": intent_result['confidence'],
             "sql_used": False,
-            "processing_type": "ai_conversational",
-            "tenant_id": tenant_id,
-            "enhancement_version": "2.1"
+            "processing_type": "ai_conversational",  # 🆕 แสดงว่าใช้ AI
+            "tenant_id": tenant_id
         }
 
-    def _create_greeting_prompt(self, config) -> str:
-        """Create context-aware greeting prompt for AI"""
-        
-        if config.language == 'th':
-            return f"""คุณเป็น AI Assistant ที่เป็นมิตรและมีประโยชน์ของ {config.name}
-
-ข้อมูลบริษัท:
-- ชื่อ: {config.name}
-- ลักษณะงาน: {config.business_type}
-- ความเชี่ยวชาญ: การพัฒนาซอฟต์แวร์และเทคโนโลยี
-
-ความสามารถของคุณ:
-- วิเคราะห์ข้อมูลพนักงานและโปรเจค
-- ตอบคำถามเกี่ยวกับธุรกิจและการดำเนินงาน
-- สร้างรายงานและสถิติต่างๆ
-
-ตัวอย่างคำถามที่คุณตอบได้:
-• มีพนักงานกี่คนในแต่ละแผนก
-• โปรเจคไหนมีงบประมาณสูงสุด
-• พนักงานคนไหนทำงานในโปรเจคหลายโปรเจค
-
-ผู้ใช้ทักทายคุณ กรุณาตอบทักทายอย่างเป็นมิตร แนะนำตัวเอง และบอกว่าคุณสามารถช่วยอะไรได้บ้าง:"""
-        
-        else:  # English
-            return f"""You are a friendly and helpful AI Assistant for {config.name}
-
-Company Information:
-- Name: {config.name}
-- Business: {config.business_type}
-- Expertise: Software development and technology solutions
-
-Your Capabilities:
-- Analyze employee and project data
-- Answer questions about business operations
-- Generate reports and statistics
-
-Example questions you can answer:
-• How many employees are in each department?
-• Which projects have the highest budgets?
-• Which employees work on multiple projects?
-
-The user is greeting you. Please respond in a friendly manner, introduce yourself, and explain how you can help:"""
-
-    def _create_help_prompt(self, config) -> str:
-        """Create help prompt for AI"""
-        
-        if config.language == 'th':
-            return f"""คุณเป็น AI Assistant ของ {config.name} ผู้ใช้ถามว่าคุณสามารถช่วยอะไรได้บ้าง
-
-บริบทบริษัท:
-- ธุรกิจ: {config.business_type}
-- ข้อมูลที่มี: พนักงาน, โปรเจค, งบประมาณ, ลูกค้า, แผนกต่างๆ
-
-ประเภทการวิเคราะห์ที่คุณทำได้:
-1. ข้อมูลพนักงาน (จำนวน, เงินเดือน, แผนก, ตำแหน่ง)
-2. ข้อมูลโปรเจค (งบประมาณ, สถานะ, ทีมงาน, ลูกค้า)
-3. การวิเคราะห์ประสิทธิภาพ (KPI, สถิติ, แนวโน้ม)
-4. รายงานสำหรับผู้บริหาร
-
-กรุณาอธิบายความสามารถของคุณอย่างชัดเจนและให้ตัวอย่างคำถามที่เป็นประโยชน์:"""
-        
-        else:
-            return f"""You are an AI Assistant for {config.name}. The user is asking what you can help with.
-
-Company Context:
-- Business Type: {config.business_type}
-- Available Data: employees, projects, budgets, clients, departments
-
-Types of analysis you can perform:
-1. Employee data (count, salaries, departments, positions)
-2. Project information (budgets, status, teams, clients)
-3. Performance analysis (KPIs, statistics, trends)
-4. Executive reports
-
-Please explain your capabilities clearly and provide useful example questions:"""
-
-    def _create_general_conversation_prompt(self, question: str, config) -> str:
-        """Create prompt for general conversation"""
-        
-        if config.language == 'th':
-            return f"""คุณเป็น AI Assistant ที่เป็นมิตรของ {config.name}
-
-บริษัทของเรา:
-- ชื่อ: {config.name}
-- ประเภทธุรกิจ: {config.business_type}
-- ความเชี่ยวชาญ: การพัฒนาซอฟต์แวร์และเทคโนโลยี
-
-คำถามผู้ใช้: {question}
-
-หากคำถามเกี่ยวข้องกับข้อมูลบริษัท ให้แนะนำว่าคุณสามารถช่วยวิเคราะห์ข้อมูลได้
-หากเป็นคำถามทั่วไป ให้ตอบอย่างเป็นมิตรและเป็นประโยชน์
-ไม่ต้องพยายามสร้าง SQL หรือเข้าถึงฐานข้อมูล:"""
-        
-        else:
-            return f"""You are a friendly AI Assistant for {config.name}
-
-Our Company:
-- Name: {config.name}
-- Business Type: {config.business_type}
-- Expertise: Software development and technology solutions
-
-User Question: {question}
-
-If the question relates to company data, suggest that you can help analyze information
-If it's a general question, respond in a friendly and helpful manner
-Don't try to generate SQL or access databases:"""
     def _create_greeting_prompt(self, config: TenantConfig) -> str:
         """Create context-aware greeting prompt for AI"""
         
