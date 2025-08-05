@@ -30,6 +30,7 @@ class IntentClassifier:
         casual_patterns = [
             'อย่างไร', 'เป็นยังไง', 'ช่วยได้อะไร', 'what can you do',
             'help me', 'ขอความช่วยเหลือ', 'คุณคือใคร', 'who are you'
+
         ]
         
         if any(pattern in question_lower for pattern in casual_patterns):

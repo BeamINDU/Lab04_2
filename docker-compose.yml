@@ -90,7 +90,7 @@ services:
       retries: 5
 
   # =============================================================================
-  # ENHANCED RAG SERVICE - ⭐ Updated with Enhanced Agent
+  # ENHANCED RAG SERVICE
   # =============================================================================
 
   rag-service:
@@ -156,9 +156,11 @@ services:
       
       # Service Identification
       - SERVICE_VERSION=2.0.0
-      - AGENT_TYPE=EnhancedPostgresOllamaAgent
       - PROMPT_VERSION=2.0
-      
+      - AGENT_TYPE=FixedPostgresOllamaAgent
+      - SAFETY_LEVEL=maximum
+      - HALLUCINATION_PREVENTION=active
+
     networks:
       - siamtech_network
     depends_on:

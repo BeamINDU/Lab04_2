@@ -21,10 +21,11 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY tenant_config.yaml .
 
 # Copy ALL application files and verify
-COPY ollama_postgres_agent.py .
+COPY enterprise_schema_validator.py .
 COPY enhanced_postgres_agent.py .
 COPY enhanced_multi_agent_service.py .
 COPY intent_classifier.py .
+COPY enterprise_intent_classifier.py .
 # Verify files are copied correctly
 RUN echo "📁 Verifying copied files:" && \
     ls -la *.py && \
