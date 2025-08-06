@@ -21,6 +21,7 @@ RUN pip install --no-cache-dir --upgrade pip && \
 COPY tenant_config.yaml .
 
 # Copy ALL application files and verify
+COPY smart_prompt_system.py .
 COPY enterprise_schema_validator.py .
 COPY enhanced_postgres_agent.py .
 COPY enhanced_multi_agent_service.py .

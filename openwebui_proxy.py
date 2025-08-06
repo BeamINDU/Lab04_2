@@ -1,3 +1,5 @@
+# 🔥 แก้ไข openwebui_proxy.py ให้รองรับ streaming จริง
+
 import os
 import json
 import asyncio
@@ -15,28 +17,29 @@ logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
 
 # =============================================================================
-# CONFIGURATION
+# CONFIGURATION (เดิม)
 # =============================================================================
 
 class ProxyConfig:
     def __init__(self):
         self.n8n_base_url = os.getenv('N8N_BASE_URL', 'http://n8n:5678')
+        self.rag_service_url = os.getenv('ENHANCED_RAG_SERVICE', 'http://rag-service:5000')
         self.default_tenant = os.getenv('DEFAULT_TENANT', 'company-a')
         self.force_tenant = os.getenv('FORCE_TENANT')
         self.port = int(os.getenv('PORT', '8001'))
         self.tenant_configs = {
-            'company-a': {'name': 'SiamTech Bangkok HQ', 'model': 'llama3.1:8b', 'language': 'th', 'webhook_path': 'company-a-chat'},
-            'company-b': {'name': 'SiamTech Chiang Mai Regional', 'model': 'llama3.1:8b', 'language': 'th', 'webhook_path': 'company-b-chat'},
-            'company-c': {'name': 'SiamTech International', 'model': 'llama3.1:8b', 'language': 'en', 'webhook_path': 'company-c-chat'}
+            'company-a': {'name': 'SiamTech Bangkok HQ', 'model': 'llama3.1:8b', 'language': 'th'},
+            'company-b': {'name': 'SiamTech Chiang Mai Regional', 'model': 'llama3.1:8b', 'language': 'th'},
+            'company-c': {'name': 'SiamTech International', 'model': 'llama3.1:8b', 'language': 'en'}
         }
 
 config = ProxyConfig()
-app = FastAPI(title=f"OpenWebUI Proxy - {config.force_tenant or 'Multi-Tenant'} (Fixed)", version="2.2.0")
+app = FastAPI(title=f"OpenWebUI Streaming Proxy v3.0", version="3.0.0")
 
 app.add_middleware(CORSMiddleware, allow_origins=["*"], allow_credentials=True, allow_methods=["*"], allow_headers=["*"])
 
 # =============================================================================
-# MODELS
+# MODELS (เดิม)
 # =============================================================================
 
 class ChatCompletionRequest(BaseModel):
@@ -47,7 +50,7 @@ class ChatCompletionRequest(BaseModel):
     stream: Optional[bool] = False
 
 # =============================================================================
-# HELPER FUNCTIONS
+# 🔥 STREAMING FUNCTIONS - ใหม่หมด
 # =============================================================================
 
 def get_tenant_id() -> str:
@@ -56,40 +59,288 @@ def get_tenant_id() -> str:
 def get_tenant_config(tenant_id: str) -> Dict:
     return config.tenant_configs.get(tenant_id, config.tenant_configs['company-a'])
 
-async def call_n8n_webhook(tenant_id: str, message: str, conversation_history: list = None) -> Dict[str, Any]:
-    """Call n8n webhook with enhanced error handling"""
-    tenant_config = get_tenant_config(tenant_id)
-    webhook_url = f"{config.n8n_base_url}/webhook/{tenant_config['webhook_path']}"
+async def call_rag_service_streaming(tenant_id: str, message: str):
+    """🔥 เรียก RAG service แบบ streaming จริงๆ"""
     
     payload = {
-        "message": message,
+        "query": message,
         "tenant_id": tenant_id,
-        "agent_type": "auto",
-        "conversation_history": conversation_history or [],
-        "settings": {"model": tenant_config['model'], "temperature": 0.7, "max_tokens": 2000},
-        "timestamp": datetime.now().isoformat()
+        "agent_type": "enhanced_sql",
+        "temperature": 0.7,
+        "include_insights": True
     }
     
     try:
         async with aiohttp.ClientSession() as session:
-            async with session.post(webhook_url, json=payload, timeout=aiohttp.ClientTimeout(total=60)) as response:
+            async with session.post(
+                f"{config.rag_service_url}/enhanced-rag-query-stream",
+                json=payload,
+                headers={"X-Tenant-ID": tenant_id},
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
                 if response.status == 200:
-                    result = await response.json()
-                    logger.info(f"n8n response type: {type(result)}")
-                    logger.info(f"n8n response keys: {result.keys() if isinstance(result, dict) else 'not dict'}")
-                    return result
+                    # 🔥 อ่าน streaming response จาก RAG service
+                    async for line in response.content:
+                        if line:
+                            line_str = line.decode('utf-8').strip()
+                            if line_str.startswith('data: '):
+                                try:
+                                    data_str = line_str[6:]  # ตัด "data: " ออก
+                                    if data_str and data_str != '[DONE]':
+                                        data = json.loads(data_str)
+                                        yield data
+                                except json.JSONDecodeError:
+                                    continue
                 else:
-                    logger.error(f"n8n webhook error: {response.status}")
-                    return {"answer": f"เกิดข้อผิดพลาดในการเรียก workflow (HTTP {response.status})", "success": False, "tenant_id": tenant_id}
-    except asyncio.TimeoutError:
-        logger.error("n8n webhook timeout")
-        return {"answer": "ระบบใช้เวลานานเกินไป กรุณาลองใหม่อีกครั้ง", "success": False, "tenant_id": tenant_id}
+                    yield {"type": "error", "message": f"RAG service error: HTTP {response.status}"}
+                    
     except Exception as e:
-        logger.error(f"n8n webhook call failed: {e}")
-        return {"answer": f"เกิดข้อผิดพลาดในการเชื่อมต่อ: {str(e)}", "success": False, "tenant_id": tenant_id}
+        logger.error(f"RAG service streaming error: {e}")
+        yield {"type": "error", "message": f"เกิดข้อผิดพลาด: {str(e)}"}
 
 # =============================================================================
-# MAIN ENDPOINTS
+# 🔥 MAIN STREAMING ENDPOINT - แก้ไขทั้งหมด
+# =============================================================================
+
+@app.post("/v1/chat/completions")
+async def chat_completions_streaming(request: ChatCompletionRequest):
+    """🔥 OpenAI-compatible endpoint with REAL streaming"""
+    
+    tenant_id = get_tenant_id()
+    tenant_config = get_tenant_config(tenant_id)
+    
+    try:
+        if not request.messages:
+            raise HTTPException(400, "No messages provided")
+        
+        # Extract user message
+        user_message = ""
+        for msg in request.messages:
+            if hasattr(msg, 'dict'):
+                msg_data = msg.dict()
+            elif isinstance(msg, dict):
+                msg_data = msg
+            else:
+                msg_data = {"role": "user", "content": str(msg)}
+            
+            if msg_data.get("role") == "user":
+                user_message = msg_data.get("content", "")
+        
+        if not user_message:
+            raise HTTPException(400, "No user message found")
+        
+        logger.info(f"🔥 Streaming request for {tenant_id}: {user_message[:50]}...")
+        
+        # 🚀 ถ้าขอ streaming
+        if request.stream:
+            async def generate_openai_streaming():
+                try:
+                    # ส่ง initial chunk
+                    initial_chunk = {
+                        "id": f"chatcmpl-streaming-{int(datetime.now().timestamp())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(datetime.now().timestamp()),
+                        "model": tenant_config['model'],
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None
+                        }]
+                    }
+                    yield f"data: {json.dumps(initial_chunk)}\n\n"
+                    
+                    # 🔥 เรียก RAG service แบบ streaming
+                    answer_started = False
+                    full_answer = ""
+                    
+                    async for chunk in call_rag_service_streaming(tenant_id, user_message):
+                        chunk_type = chunk.get("type", "")
+                        
+                        # 📊 แสดง status (optional)
+                        if chunk_type == "status":
+                            status_chunk = {
+                                "id": f"chatcmpl-status-{int(datetime.now().timestamp())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp()),
+                                "model": tenant_config['model'],
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"content": f"⏳ {chunk.get('message', '')}\n"},
+                                    "finish_reason": None
+                                }]
+                            }
+                            yield f"data: {json.dumps(status_chunk)}\n\n"
+                        
+                        # 🔥 ส่ง answer chunks
+                        elif chunk_type == "answer_chunk":
+                            if not answer_started:
+                                # ส่ง newline เพื่อแยกจาก status
+                                separator_chunk = {
+                                    "id": f"chatcmpl-sep-{int(datetime.now().timestamp())}",
+                                    "object": "chat.completion.chunk",
+                                    "created": int(datetime.now().timestamp()),
+                                    "model": tenant_config['model'],
+                                    "choices": [{
+                                        "index": 0,
+                                        "delta": {"content": "\n💬 "},
+                                        "finish_reason": None
+                                    }]
+                                }
+                                yield f"data: {json.dumps(separator_chunk)}\n\n"
+                                answer_started = True
+                            
+                            # ส่ง actual content
+                            content = chunk.get("content", "")
+                            full_answer += content
+                            
+                            content_chunk = {
+                                "id": f"chatcmpl-content-{int(datetime.now().timestamp())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp()),
+                                "model": tenant_config['model'],
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"content": content},
+                                    "finish_reason": None
+                                }]
+                            }
+                            yield f"data: {json.dumps(content_chunk)}\n\n"
+                        
+                        # ✅ จบแล้ว
+                        elif chunk_type == "answer_complete":
+                            # ส่ง metadata สรุป (optional)
+                            summary_chunk = {
+                                "id": f"chatcmpl-summary-{int(datetime.now().timestamp())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp()),
+                                "model": tenant_config['model'],
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"content": f"\n\n📊 ข้อมูล: {chunk.get('db_results_count', 0)} รายการ | SQL: {chunk.get('sql_generation_method', 'AI')}"},
+                                    "finish_reason": None
+                                }]
+                            }
+                            yield f"data: {json.dumps(summary_chunk)}\n\n"
+                            break
+                        
+                        # ❌ Error
+                        elif chunk_type == "error":
+                            error_chunk = {
+                                "id": f"chatcmpl-error-{int(datetime.now().timestamp())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp()),
+                                "model": tenant_config['model'],
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {"content": f"\n❌ {chunk.get('message', 'เกิดข้อผิดพลาด')}"},
+                                    "finish_reason": "stop"
+                                }]
+                            }
+                            yield f"data: {json.dumps(error_chunk)}\n\n"
+                            yield "data: [DONE]\n\n"
+                            return
+                    
+                    # ส่ง final chunk
+                    final_chunk = {
+                        "id": f"chatcmpl-final-{int(datetime.now().timestamp())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(datetime.now().timestamp()),
+                        "model": tenant_config['model'],
+                        "choices": [{
+                            "index": 0,
+                            "delta": {},
+                            "finish_reason": "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(final_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    
+                except Exception as e:
+                    logger.error(f"🔥 Streaming error: {e}")
+                    error_chunk = {
+                        "id": f"chatcmpl-error-{int(datetime.now().timestamp())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(datetime.now().timestamp()),
+                        "model": tenant_config['model'],
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": f"\n❌ เกิดข้อผิดพลาดในระบบ: {str(e)}"},
+                            "finish_reason": "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(error_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+            
+            return StreamingResponse(
+                generate_openai_streaming(),
+                media_type="text/event-stream",
+                headers={
+                    "Cache-Control": "no-cache",
+                    "Connection": "keep-alive",
+                    "Access-Control-Allow-Origin": "*",
+                    "Access-Control-Allow-Headers": "*"
+                }
+            )
+        
+        # 🔄 Non-streaming (เดิม) - เรียก RAG service ปกติ
+        else:
+            # เรียก RAG service แบบปกติ
+            async with aiohttp.ClientSession() as session:
+                payload = {
+                    "query": user_message,
+                    "tenant_id": tenant_id,
+                    "agent_type": "enhanced_sql"
+                }
+                
+                async with session.post(
+                    f"{config.rag_service_url}/enhanced-rag-query",
+                    json=payload,
+                    headers={"X-Tenant-ID": tenant_id},
+                    timeout=aiohttp.ClientTimeout(total=60)
+                ) as response:
+                    if response.status == 200:
+                        result = await response.json()
+                        answer = result.get("answer", "ไม่สามารถรับคำตอบได้")
+                    else:
+                        answer = f"เกิดข้อผิดพลาด (HTTP {response.status})"
+            
+            return {
+                "id": f"chatcmpl-{int(datetime.now().timestamp())}",
+                "object": "chat.completion",
+                "created": int(datetime.now().timestamp()),
+                "model": tenant_config['model'],
+                "choices": [{
+                    "index": 0,
+                    "message": {"role": "assistant", "content": answer},
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": len(user_message.split()),
+                    "completion_tokens": len(answer.split()),
+                    "total_tokens": len(user_message.split()) + len(answer.split())
+                }
+            }
+            
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error(f"🔥 Unexpected error: {e}")
+        return {
+            "id": f"chatcmpl-error-{int(datetime.now().timestamp())}",
+            "object": "chat.completion",
+            "created": int(datetime.now().timestamp()),
+            "model": tenant_config['model'],
+            "choices": [{
+                "index": 0,
+                "message": {"role": "assistant", "content": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"},
+                "finish_reason": "stop"
+            }],
+            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
+            "error": str(e)
+        }
+
+# =============================================================================
+# เหลือ endpoints อื่นๆ เดิม
 # =============================================================================
 
 @app.get("/health")
@@ -99,12 +350,13 @@ async def health():
     
     return {
         "status": "healthy",
-        "service": "OpenWebUI Proxy (Fixed)",
-        "version": "2.2.0",
+        "service": "OpenWebUI Streaming Proxy v3.0",
+        "version": "3.0.0",
         "tenant_id": tenant_id,
         "tenant_name": tenant_config['name'],
         "model": tenant_config['model'],
-        "n8n_url": config.n8n_base_url,
+        "rag_service": config.rag_service_url,
+        "streaming_enabled": True,
         "timestamp": datetime.now().isoformat()
     }
 
@@ -115,207 +367,19 @@ async def list_models():
     
     return {
         "object": "list",
-        "data": [
-            {
-                "id": "llama3.1:8b",
-                "object": "model",
-                "created": int(datetime.now().timestamp()),
-                "owned_by": f"siamtech-{tenant_id}",
-                "siamtech_metadata": {
-                    "tenant_id": tenant_id,
-                    "tenant_name": tenant_config['name'],
-                    "language": tenant_config['language'],
-                    "proxy_version": "2.3.0"
-                }
-            }
-        ]
-    }
-
-@app.post("/v1/chat/completions")
-async def chat_completions(request: ChatCompletionRequest):
-    """Fixed chat completions endpoint with enhanced error handling"""
-    tenant_id = get_tenant_id()
-    tenant_config = get_tenant_config(tenant_id)
-    
-    try:
-        if not request.messages:
-            raise HTTPException(400, "No messages provided")
-        
-        user_message = ""
-        conversation_history = []
-        
-        # Enhanced message parsing
-        for msg in request.messages:
-            try:
-                # Handle both dict and Pydantic model formats
-                if hasattr(msg, 'dict'):
-                    msg_data = msg.dict()
-                elif isinstance(msg, dict):
-                    msg_data = msg
-                else:
-                    # Convert to dict if it's a different type
-                    msg_data = {"role": "user", "content": str(msg)}
-                
-                role = msg_data.get("role", "user")
-                content = msg_data.get("content", "")
-                
-                if role == "user":
-                    user_message = content
-                
-                conversation_history.append({"role": role, "content": content})
-                
-            except Exception as msg_error:
-                logger.error(f"Error parsing message: {msg_error}")
-                # Skip problematic messages
-                continue
-        
-        if not user_message:
-            raise HTTPException(400, "No user message found")
-        
-        logger.info(f"Processing chat completion for {tenant_id}: {user_message[:100]}...")
-        
-        # Call n8n webhook
-        n8n_response = await call_n8n_webhook(tenant_id, user_message, conversation_history[:-1])
-        
-        # Enhanced response parsing
-        answer = "ไม่สามารถรับคำตอบได้"
-        success = False
-        
-        try:
-            if isinstance(n8n_response, dict):
-                # Direct access for dict
-                answer = n8n_response.get("answer", "ไม่สามารถรับคำตอบได้")
-                success = n8n_response.get("success", True)
-            elif isinstance(n8n_response, str):
-                # Handle string response
-                try:
-                    parsed = json.loads(n8n_response)
-                    answer = parsed.get("answer", n8n_response)
-                    success = parsed.get("success", True)
-                except json.JSONDecodeError:
-                    answer = n8n_response
-                    success = True
-            else:
-                # Handle other types
-                answer = str(n8n_response)
-                success = True
-                
-        except Exception as parse_error:
-            logger.error(f"Error parsing n8n response: {parse_error}")
-            logger.error(f"Response type: {type(n8n_response)}")
-            logger.error(f"Response content: {str(n8n_response)[:500]}...")
-            answer = f"เกิดข้อผิดพลาดในการแปลงข้อมูล: {str(parse_error)}"
-            success = False
-        
-        if not success:
-            logger.warning(f"n8n workflow returned error for {tenant_id}")
-        
-        # Format as OpenAI response
-        response_data = {
-            "id": f"chatcmpl-{int(datetime.now().timestamp())}",
-            "object": "chat.completion",
+        "data": [{
+            "id": "llama3.1:8b",
+            "object": "model",
             "created": int(datetime.now().timestamp()),
-            "model": tenant_config['model'],
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": answer
-                    },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": {
-                "prompt_tokens": len(user_message.split()),
-                "completion_tokens": len(answer.split()),
-                "total_tokens": len(user_message.split()) + len(answer.split())
-            },
-            "system_fingerprint": f"siamtech-{tenant_id}-v2.2",
+            "owned_by": f"siamtech-{tenant_id}",
+            "streaming_supported": True,
             "siamtech_metadata": {
                 "tenant_id": tenant_id,
                 "tenant_name": tenant_config['name'],
-                "model_used": tenant_config['model'],
-                "workflow_success": success,
-                "proxy_version": "2.2.0",
-                "original_response_type": str(type(n8n_response))
+                "language": tenant_config['language'],
+                "proxy_version": "3.0.0"
             }
-        }
-        
-        return response_data
-    
-    except HTTPException:
-        raise
-    except Exception as e:
-        logger.error(f"Unexpected error in chat completions for {tenant_id}: {e}")
-        logger.error(f"Error type: {type(e)}")
-        import traceback
-        logger.error(f"Traceback: {traceback.format_exc()}")
-        
-        # Return error response in OpenAI format
-        return {
-            "id": f"chatcmpl-error-{int(datetime.now().timestamp())}",
-            "object": "chat.completion",
-            "created": int(datetime.now().timestamp()),
-            "model": tenant_config['model'],
-            "choices": [
-                {
-                    "index": 0,
-                    "message": {
-                        "role": "assistant",
-                        "content": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
-                    },
-                    "finish_reason": "stop"
-                }
-            ],
-            "usage": {"prompt_tokens": 0, "completion_tokens": 0, "total_tokens": 0},
-            "error": str(e)
-        }
-
-@app.get("/v1/chat/completions")
-async def chat_completions_get():
-    return {"message": "Chat completions endpoint is ready. Use POST method."}
-
-# =============================================================================
-# PROXY ENDPOINTS
-# =============================================================================
-
-@app.post("/proxy/n8n")
-async def proxy_n8n(request: Dict[str, Any]):
-    tenant_id = get_tenant_id()
-    
-    try:
-        result = await call_n8n_webhook(
-            tenant_id=tenant_id,
-            message=request.get("message", ""),
-            conversation_history=request.get("conversation_history", [])
-        )
-        return result
-    except Exception as e:
-        logger.error(f"Error in n8n proxy for {tenant_id}: {e}")
-        return {"error": str(e), "success": False}
-
-# =============================================================================
-# INFO ENDPOINTS
-# =============================================================================
-
-@app.get("/tenant/info")
-async def tenant_info():
-    tenant_id = get_tenant_id()
-    tenant_config = get_tenant_config(tenant_id)
-    
-    return {
-        "tenant_id": tenant_id,
-        "tenant_name": tenant_config['name'],
-        "model": tenant_config['model'],
-        "language": tenant_config['language'],
-        "webhook_path": tenant_config['webhook_path'],
-        "proxy_config": {
-            "n8n_base_url": config.n8n_base_url,
-            "force_tenant": config.force_tenant,
-            "default_tenant": config.default_tenant
-        },
-        "version": "2.2.0"
+        }]
     }
 
 # =============================================================================
@@ -326,14 +390,14 @@ if __name__ == "__main__":
     tenant_id = get_tenant_id()
     tenant_config = get_tenant_config(tenant_id)
     
-    print("🔗 OpenWebUI Proxy Server v2.2 (Fixed)")
+    print("🔗 OpenWebUI Streaming Proxy v3.0")
     print("=" * 50)
     print(f"🏢 Tenant: {tenant_config['name']} ({tenant_id})")
     print(f"🤖 Model: {tenant_config['model']}")
     print(f"🌐 Language: {tenant_config['language']}")
-    print(f"📡 n8n URL: {config.n8n_base_url}")
+    print(f"📡 RAG Service: {config.rag_service_url}")
     print(f"🔧 Port: {config.port}")
-    print(f"🛠️ Fixes: Enhanced error handling, response parsing")
+    print(f"🔥 Streaming: ENABLED")
     print("=" * 50)
     
     uvicorn.run("openwebui_proxy:app", host="0.0.0.0", port=config.port, reload=False)
