@@ -8,6 +8,7 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
+from intent_classifier import IntentClassifier
 from fastapi.responses import StreamingResponse
 import asyncio
 from typing import AsyncGenerator
