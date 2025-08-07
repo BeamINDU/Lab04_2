@@ -8,7 +8,7 @@ import logging
 from dataclasses import dataclass
 import re
 from datetime import datetime
-from intent_classifier import IntentClassifier
+from refactored_modules.intent_classifier import IntentClassifier
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)

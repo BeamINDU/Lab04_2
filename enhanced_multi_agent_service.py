@@ -8,13 +8,13 @@ from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from pydantic import BaseModel
 import logging
-from intent_classifier import IntentClassifier
+from refactored_modules.intent_classifier import IntentClassifier
 from fastapi.responses import StreamingResponse
 import asyncio
 from typing import AsyncGenerator
 import json
 # Import the enhanced PostgreSQL + Ollama agent
-from enhanced_postgres_agent import EnhancedPostgresOllamaAgent
+from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
 
 # Configure logging
 logging.basicConfig(level=logging.INFO)

@@ -20,21 +20,27 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy configuration files
 COPY tenant_config.yaml .
 
-# Copy ALL application files and verify
+# 🔥 Copy refactored modules FIRST
+COPY refactored_modules/ ./refactored_modules/
+
+# Copy main application files
 COPY smart_prompt_system.py .
 COPY enterprise_schema_validator.py .
-COPY enhanced_postgres_agent.py .
 COPY enhanced_multi_agent_service.py .
-COPY intent_classifier.py .
+#COPY intent_classifier.py .
 COPY enterprise_intent_classifier.py .
-# Verify files are copied correctly
-RUN echo "📁 Verifying copied files:" && \
-    ls -la *.py && \
-    echo "🔍 Checking enhanced_postgres_agent.py:" && \
-    head -5 enhanced_postgres_agent.py && \
-    echo "✅ File verification complete"
 
-# Legacy compatibility (เผื่อยังใช้ service เดิม)
+# 🔧 Copy original enhanced_postgres_agent.py as fallback
+COPY enhanced_postgres_agent.py .
+
+# Verify refactored modules are copied correctly
+RUN echo "📁 Verifying refactored modules:" && \
+    ls -la refactored_modules/ && \
+    echo "🔍 Checking main refactored agent:" && \
+    head -5 refactored_modules/enhanced_postgres_agent_refactored.py && \
+    echo "✅ Refactored modules verification complete"
+
+# Legacy compatibility
 COPY enhanced_multi_agent_service.py multi_agent_service.py
 
 # Create logs directory
@@ -60,12 +66,12 @@ def test_health():
             data = response.json()
             # Check for enhanced features
             if 'enhancement_features' in data:
-                print("✅ Enhanced RAG Service is healthy")
+                print("✅ Enhanced RAG Service is healthy (Refactored)")
                 print(f"Version: {data.get('version', 'unknown')}")
                 print(f"Features: {len(data.get('enhancement_features', []))}")
                 return True
             else:
-                print("⚠️  Basic RAG Service is healthy (not enhanced)")
+                print("⚠️  Basic RAG Service is healthy")
                 return True
         else:
             print(f"❌ Health check failed: HTTP {response.status_code}")
