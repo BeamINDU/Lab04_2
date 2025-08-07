@@ -49,12 +49,15 @@ class IntentClassifier:
                 r'(how many.*(?:employee|project|department))',
                 r'(count.*(?:employee|project))'
             ],
-            'assignment_queries': [  # 🔥 NEW: รับผิดชอบ/assignment patterns
+            'assignment_queries': [
                 r'(แต่ละคน.*(?:รับผิดชอบ|ทำงาน|จัดการ))',
                 r'(each.*(?:responsible|work|manage))',
                 r'(รับผิดชอบ.*(?:อะไร|ไหน|บ้าง))',
                 r'(responsible.*(?:what|which|for))',
-                r'(assignment|assigned|allocate)'
+                r'(assignment|assigned|allocate)',
+                r'(พนักงาน.*แต่ละคน.*(?:รับผิดชอบ|ทำ|จัดการ))',
+                r'(siamtech.*แต่ละคน.*(?:รับผิดชอบ|โปรเจค))',
+                r'(แต่ละคน.*siamtech.*(?:รับผิดชอบ|โปรเจค))'
             ]
         }
         
@@ -70,41 +73,55 @@ class IntentClassifier:
         ]
     
     def classify_intent(self, question: str) -> Dict[str, Any]:
-        """🎯 Enhanced intent classification with better SQL detection"""
+        """🎯 Fixed intent classification with proper greeting detection"""
         
         if not question or len(question.strip()) == 0:
             return self._create_response('conversation', 0.9, 'Empty question')
         
-        question_lower = question.lower().strip()
+        question_lower = question.strip().lower()
         
-        # 1. Check for PURE conversational patterns first (strict matching)
-        pure_conv_result = self._check_pure_conversational_patterns(question_lower)
-        if pure_conv_result['confidence'] > 0.8:
-            return pure_conv_result
+        # 🔥 1. Pure greetings (HIGHEST PRIORITY)
+        pure_greetings = [
+            r'^(สวัสดี|สวัสดีครับ|สวัสดีค่ะ)$',
+            r'^(hello|hi|hey)$',
+            r'^(good morning|good afternoon|good evening)$',
+            r'^(ขอบคุณ|ขอบคุณครับ|ขอบคุณค่ะ)$',
+            r'^(thank you|thanks|thx)$'
+        ]
         
-        # 2. Check for STRONG SQL patterns (should override conversational)
-        strong_sql_result = self._check_strong_sql_patterns(question_lower)
-        if strong_sql_result['confidence'] > 0.7:
-            return strong_sql_result
+        for pattern in pure_greetings:
+            if re.fullmatch(pattern, question_lower, re.IGNORECASE):
+                return self._create_response(
+                    'conversation', 
+                    0.98, 
+                    'Pure greeting detected'
+                )
         
-        # 3. Check for business entities (moderate confidence SQL)
-        entity_result = self._check_business_entities(question_lower)
-        if entity_result['confidence'] > 0.5:
-            return entity_result
-        
-        # 4. Default: if contains any work-related terms, try SQL
-        if self._contains_work_terms(question_lower):
+        # 🔥 2. Single word check
+        if question_lower in ['สวัสดี', 'hello', 'hi', 'hey', 'ขอบคุณ', 'thanks']:
             return self._create_response(
-                'business_query',
-                0.6,
-                'Contains work-related terms, trying SQL'
+                'conversation',
+                0.95,
+                'Single word greeting'
             )
         
-        # 5. Final fallback to conversation
+        # 3. Business queries (only if NOT greeting)
+        if not any(greeting in question_lower for greeting in ['สวัสดี', 'hello', 'hi', 'hey']):
+            # ใช้ business patterns เดิม...
+            for category, patterns in self.strong_sql_patterns.items():
+                for pattern in patterns:
+                    if re.search(pattern, question_lower, re.IGNORECASE):
+                        return self._create_response(
+                            'business_query',
+                            0.85,
+                            f'Business pattern: {category}'
+                        )
+        
+        # Default to conversation
         return self._create_response(
             'conversation',
-            0.5,
-            'No clear business intent detected'
+            0.8,
+            'Default to conversation'
         )
     
     def _check_pure_conversational_patterns(self, question: str) -> Dict[str, Any]:

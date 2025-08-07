@@ -18,11 +18,10 @@ from .business_logic_mapper import BusinessLogicMapper
 from .ai_service import AIService
 from .prompt_generator import PromptGenerator
 from .intent_classifier import IntentClassifier
-
+from .few_shot_sql_engine import EnhancedFewShotAgent
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 def convert_decimal_to_float(obj: Any) -> Any:
         """🔧 Convert Decimal objects to float recursively"""
         if isinstance(obj, Decimal):
@@ -50,6 +49,8 @@ class EnhancedPostgresOllamaAgent:
         self.prompt_generator = PromptGenerator(self.schema_service, self.business_mapper)
         self.intent_classifier = IntentClassifier()
         
+        self.few_shot_agent = EnhancedFewShotAgent(self)
+
         logger.info("✅ Enhanced PostgreSQL Ollama Agent initialized with clean architecture")
 
   
@@ -242,8 +243,10 @@ class EnhancedPostgresOllamaAgent:
                 "type": "error",
                 "message": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
             }
-    async def generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
-        """Enhanced SQL generation with business intelligence and pattern matching"""
+    async def original_generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
+        """Enhanced SQL generation with business intelligence and pattern matching (Original Method)"""
+        
+        # 📋 Copy โค้ดทั้งหมดจาก generate_enhanced_sql เดิมมาใส่ที่นี่
         config = self.tenant_configs[tenant_id]
         schema_info = self.schema_service.get_schema_info(tenant_id)
         business_logic = self.business_mapper.get_business_logic(tenant_id)
@@ -255,7 +258,7 @@ class EnhancedPostgresOllamaAgent:
         if query_analysis['pattern_match']:
             sql_query = self._apply_sql_pattern(query_analysis, tenant_id)
             metadata = {
-                'method': 'pattern_matching',
+                'method': 'pattern_matching_original',
                 'pattern_used': query_analysis['pattern_match'],
                 'confidence': 'high'
             }
@@ -272,14 +275,14 @@ class EnhancedPostgresOllamaAgent:
                 tenant_config=config,
                 prompt=system_prompt,
                 context_data="",
-                temperature=0.1  # Low temperature for precise SQL
+                temperature=0.1
             )
             
             # Extract and validate SQL
             sql_query = self._extract_and_validate_sql(ai_response, tenant_id)
             
             metadata = {
-                'method': 'ai_generation',
+                'method': 'ai_generation_original',
                 'original_response': ai_response[:200],
                 'confidence': 'medium' if len(sql_query) > 50 else 'low'
             }
@@ -287,15 +290,88 @@ class EnhancedPostgresOllamaAgent:
             return sql_query, metadata
             
         except Exception as e:
-            logger.error(f"Enhanced SQL generation failed: {e}")
+            logger.error(f"Original enhanced SQL generation failed: {e}")
             fallback_sql = self._generate_fallback_sql(question, tenant_id)
             metadata = {
-                'method': 'fallback',
+                'method': 'fallback_original', 
                 'error': str(e),
                 'confidence': 'low'
             }
             return fallback_sql, metadata
-
+    def _is_high_quality_sql(self, sql: str, question: str) -> bool:
+        """🔍 ตรวจสอบคุณภาพ SQL ที่ Few-Shot สร้าง"""
+        sql_upper = sql.upper()
+        question_lower = question.lower()
+        
+        # Basic validation
+        if not sql_upper.startswith('SELECT'):
+            return False
+        
+        if 'แต่ละคน' in question_lower and 'รับผิดชอบ' in question_lower:
+            if 'LEFT JOIN' not in sql_upper:
+                logger.warning("❌ Assignment query without LEFT JOIN")
+                return False
+            
+            if 'COALESCE' not in sql_upper:
+                logger.warning("❌ Assignment query without COALESCE for NULL handling")
+                return False
+        
+        dangerous_patterns = [
+            'AND.*OR.*ORDER',
+            'SELECT \\*',
+            'WHERE.*ILIKE.*AND.*ILIKE.*OR'
+        ]
+        
+        for pattern in dangerous_patterns:
+            if re.search(pattern, sql, re.IGNORECASE):
+                logger.warning(f"❌ Found dangerous pattern: {pattern}")
+                return False
+        
+        return True
+    async def generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
+        """🧠 Enhanced SQL generation with Few-Shot Learning FIRST"""
+        
+        try:
+            logger.info(f"🧠 Attempting Few-Shot Learning for: {question[:50]}...")
+            
+            sql_query, metadata = await self.few_shot_agent.generate_sql_with_few_shot(question, tenant_id)
+            
+            # เช็คว่า SQL ที่ได้มีคุณภาพดีไหม
+            if self._is_high_quality_sql(sql_query, question):
+                logger.info(f"✅ Few-Shot Success! Method: {metadata['method']}")
+                return sql_query, metadata
+            else:
+                logger.warning("🔄 Few-Shot SQL quality insufficient, falling back...")
+                
+        except Exception as e:
+            logger.warning(f"🔄 Few-Shot failed: {e}, falling back to original method")
+        
+        # Fallback to original enhanced method
+        return await self.original_generate_enhanced_sql(question, tenant_id)
+    
+    def get_few_shot_statistics(self) -> Dict[str, Any]:
+        """📊 ดึงสถิติการใช้งาน Few-Shot Learning"""
+        if hasattr(self.few_shot_agent, 'few_shot_engine'):
+            engine = self.few_shot_agent.few_shot_engine
+            
+            total_examples = sum(len(examples) for examples in engine.sql_examples.values())
+            categories = list(engine.sql_examples.keys())
+            
+            return {
+                "few_shot_enabled": True,
+                "total_examples": total_examples,
+                "categories": categories,
+                "examples_per_category": {
+                    cat: len(examples) for cat, examples in engine.sql_examples.items()
+                },
+                "engine_version": "1.0",
+                "status": "active"
+            }
+        else:
+            return {
+                "few_shot_enabled": False,
+                "error": "Few-Shot agent not initialized"
+            }
     def _analyze_question_intent(self, question: str, tenant_id: str) -> Dict[str, Any]:
         """Analyze question to determine intent and suggest patterns"""
         question_lower = question.lower()

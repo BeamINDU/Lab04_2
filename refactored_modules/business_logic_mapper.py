@@ -88,6 +88,21 @@ class BusinessLogicMapper:
                 GROUP BY department 
                 ORDER BY employee_count DESC;
             """,
+             'employee_project_assignments': """
+                SELECT 
+                    e.name as employee_name,
+                    e.position,
+                    e.department,
+                    p.name as project_name,
+                    p.client,
+                    ep.role as project_role,
+                    ROUND(ep.allocation * 100, 1) || '%' as time_allocation,
+                    p.status as project_status
+                FROM employees e
+                LEFT JOIN employee_projects ep ON e.id = ep.employee_id
+                LEFT JOIN projects p ON ep.project_id = p.id
+                ORDER BY e.name, p.name;
+            """,
             'top_earners': """
                 SELECT 
                     name,
