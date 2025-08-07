@@ -15,7 +15,6 @@ from typing import AsyncGenerator
 import json
 # Import the enhanced PostgreSQL + Ollama agent
 from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -108,8 +107,19 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
-# Global enhanced agent (singleton)
-enhanced_agent = EnhancedPostgresOllamaAgent()
+try:
+    from refactored_modules.universal_prompt_system import UniversalPromptMigrationGuide
+    original_agent = EnhancedPostgresOllamaAgent()
+    enhanced_agent = UniversalPromptMigrationGuide.integrate_with_existing_agent(original_agent)
+    print("✅ Universal Prompt System loaded successfully")
+except ImportError as e:
+    print(f"⚠️ Universal Prompt System not found: {e}")
+    enhanced_agent = EnhancedPostgresOllamaAgent()
+    print("🔄 Using original system")
+except Exception as e:
+    print(f"❌ Universal Prompt System failed: {e}")
+    enhanced_agent = EnhancedPostgresOllamaAgent()
+    print("🔄 Using original system")
 
 # =============================================================================
 # DEPENDENCIES
@@ -129,15 +139,52 @@ def validate_tenant_id(tenant_id: str) -> bool:
 # =============================================================================
 # ENHANCED CORE ENDPOINTS
 # =============================================================================
-
+@app.get("/universal-prompt-status")
+async def universal_prompt_status():
+    """ตรวจสอบสถานะ Universal Prompt System"""
+    try:
+        stats = enhanced_agent.get_universal_prompt_stats()
+        return {
+            "status": "active",
+            "system": "Universal Prompt System v1.0",
+            "stats": stats,
+            "features": [
+                "Context-aware prompts per company",
+                "Type-safe SQL generation",
+                "Multi-language support (Thai/English)", 
+                "Business-specific templates",
+                "Automatic fallback system"
+            ]
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "error": str(e),
+            "fallback": "Using original system"
+        }
+    
 @app.get("/health")
 async def enhanced_health_check():
-    """Enhanced health check endpoint with system capabilities"""
+    """Enhanced health check endpoint with Universal Prompt System status"""
+    
+    # เพิ่มข้อมูลใหม่
+    universal_prompt_status = "active"
+    try:
+        stats = enhanced_agent.get_universal_prompt_stats()
+        universal_prompt_companies = stats['registered_companies']
+    except:
+        universal_prompt_status = "error"
+        universal_prompt_companies = 0
+    
     return {
         "status": "healthy",
-        "service": "SiamTech Enhanced Multi-Tenant RAG v2.0",
-        "version": "2.0.0",
+        "service": "SiamTech Enhanced Multi-Tenant RAG v3.0",  # อัปเดตเวอร์ชัน
+        "version": "3.0.0",
         "enhancement_features": [
+            "universal_context_aware_prompts",  # ⭐ ใหม่
+            "type_safe_sql_generation",        # ⭐ ใหม่
+            "multi_language_template_system",  # ⭐ ใหม่
+            "business_context_injection",      # ⭐ ใหม่
             "smart_sql_generation_with_patterns",
             "business_intelligence_insights", 
             "enhanced_prompt_engineering",
@@ -146,20 +193,29 @@ async def enhanced_health_check():
             "confidence_scoring",
             "structured_business_analysis"
         ],
+        "universal_prompt_system": {
+            "status": universal_prompt_status,
+            "registered_companies": universal_prompt_companies,
+            "type_safety_validator": "active",
+            "template_types": ["thai_enterprise", "thai_tourism", "english_international"]
+        },
         "capabilities": [
             "pattern_matching_sql_generation",
             "business_context_awareness", 
             "multi_tenant_isolation",
             "schema_aware_queries",
             "automatic_insights_generation",
-            "progressive_fallback_strategies"
+            "progressive_fallback_strategies",
+            "context_aware_universal_prompts",  # ⭐ ใหม่
+            "type_safe_sql_validation"          # ⭐ ใหม่
         ],
         "tenants": list(ENHANCED_TENANT_CONFIGS.keys()),
         "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434'),
-        "agent_type": "EnhancedPostgresOllamaAgent",
-        "prompt_version": "2.0",
+        "agent_type": "EnhancedPostgresOllamaAgent_with_UniversalPrompts",  # อัปเดต
+        "prompt_version": "3.0_universal",  # อัปเดต
         "timestamp": datetime.now().isoformat()
     }
+
 
 @app.get("/tenants/enhanced")
 async def list_enhanced_tenants():
@@ -692,6 +748,52 @@ async def enhanced_tenant_status(tenant_id: str):
         logger.error(f"Error getting enhanced status for {tenant_id}: {e}")
         raise HTTPException(500, f"Enhanced status check failed: {str(e)}")
 
+@app.post("/test-universal-prompts")
+async def test_universal_prompts_endpoint():
+    """ทดสอบ Universal Prompt System"""
+    
+    test_results = []
+    
+    test_questions = [
+        ("company-a", "พนักงานแต่ละคนรับผิดชอบโปรเจคอะไรบ้าง"),
+        ("company-b", "มีโปรเจคท่องเที่ยวอะไรบ้าง"),
+        ("company-c", "Which international projects have highest revenue")
+    ]
+    
+    for tenant_id, question in test_questions:
+        try:
+            # ทดสอบสร้าง prompt
+            prompt = enhanced_agent.universal_integration.universal_prompt.generate_sql_prompt(
+                question, tenant_id
+            )
+            
+            # ทดสอบสร้าง SQL (ไม่รัน AI จริง)
+            test_result = {
+                "tenant_id": tenant_id,
+                "question": question,
+                "status": "success",
+                "prompt_length": len(prompt),
+                "template_type": enhanced_agent.universal_integration._get_template_type(tenant_id),
+                "has_type_safety": "TYPE SAFETY RULES" in prompt,
+                "has_business_context": "บริบทธุรกิจ" in prompt or "Business Context" in prompt
+            }
+            
+        except Exception as e:
+            test_result = {
+                "tenant_id": tenant_id,
+                "question": question,
+                "status": "error",
+                "error": str(e)
+            }
+        
+        test_results.append(test_result)
+    
+    return {
+        "test_status": "completed",
+        "total_tests": len(test_results),
+        "successful": len([r for r in test_results if r["status"] == "success"]),
+        "results": test_results
+    }
 
 @app.get("/system/enhancement-metrics")
 async def system_enhancement_metrics():
@@ -749,6 +851,41 @@ async def system_enhancement_metrics():
         ]
     }
 
+def apply_universal_prompt_system():
+    try:
+        from refactored_modules.universal_prompt_system import UniversalPromptIntegration
+        
+        # สร้าง integration
+        universal_integration = UniversalPromptIntegration(enhanced_agent)
+        
+        # เก็บ original method
+        original_generate_enhanced_sql = enhanced_agent.generate_enhanced_sql
+        
+        # สร้าง enhanced method
+        async def enhanced_sql_with_universal_prompt(question: str, tenant_id: str):
+            try:
+                logger.info(f"🎯 Using Universal Prompt for: {question[:50]}...")
+                return await universal_integration.generate_enhanced_sql_with_universal_prompt(
+                    question, tenant_id
+                )
+            except Exception as e:
+                logger.warning(f"🔄 Universal prompt failed: {e}, falling back...")
+                return await original_generate_enhanced_sql(question, tenant_id)
+        
+        # Apply the enhancement
+        enhanced_agent.generate_enhanced_sql = enhanced_sql_with_universal_prompt
+        enhanced_agent.universal_integration = universal_integration
+        
+        logger.info("✅ Universal Prompt System applied successfully")
+        return True
+        
+    except Exception as e:
+        logger.error(f"❌ Universal Prompt System failed to load: {e}")
+        logger.info("🔄 Continuing with original system...")
+        return False
+
+# Apply the system
+apply_universal_prompt_system()
 # =============================================================================
 # MAIN APPLICATION
 # =============================================================================

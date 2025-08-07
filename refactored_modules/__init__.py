@@ -26,6 +26,14 @@ from .ai_service import AIService
 from .prompt_generator import PromptGenerator
 from .intent_classifier import IntentClassifier
 from .enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
+from .universal_prompt_system import (
+    UniversalPromptGenerator,
+    UniversalPromptIntegration, 
+    EnhancedAgentWithUniversalPrompt,
+    UniversalPromptMigrationGuide,
+    CompanyContext,
+    TypeSafetySQLValidator
+)
 
 __version__ = "2.1.0"
 __author__ = "SiamTech Development Team"
@@ -42,4 +50,10 @@ __all__ = [
     'PromptGenerator',
     'IntentClassifier',
     'EnhancedPostgresOllamaAgent'
+    'UniversalPromptGenerator',
+    'UniversalPromptIntegration',
+    'EnhancedAgentWithUniversalPrompt',
+    'UniversalPromptMigrationGuide',
+    'CompanyContext',
+    'TypeSafetySQLValidator'
 ]
