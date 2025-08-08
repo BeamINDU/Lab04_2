@@ -15,7 +15,7 @@ from core_system.prompt_manager import PromptManager
 logger = logging.getLogger(__name__)
 
 class ModularEnhancedAgent:
-    """🔥 Enhanced Bridge with Tourism Support (Company A + B)"""
+    """🔥 Fixed Bridge with Tourism Support (Company A + B)"""
     
     def __init__(self, tenant_configs: Dict[str, Any]):
         self.tenant_configs = tenant_configs
@@ -27,7 +27,8 @@ class ModularEnhancedAgent:
         try:
             self.prompt_manager = PromptManager(tenant_configs)
             self.modular_available = True
-            self.supported_companies = ['company-a', 'company-b']  # 🆕 Added Company B
+            # 🔥 FIXED: Add supported_companies attribute
+            self.supported_companies = ['company-a', 'company-b']
             logger.info("✅ Enhanced modular prompt system loaded (Enterprise + Tourism)")
         except Exception as e:
             logger.warning(f"⚠️ Modular prompts failed: {e}")
@@ -159,136 +160,9 @@ class ModularEnhancedAgent:
                 'gradual_migration_support'
             ]
         }
-
-# =============================================================================
-# Enhanced Test Functions
-# =============================================================================
-
-async def test_tourism_integration():
-    """🧪 Test Tourism Integration"""
     
-    print("🧪 Testing Enhanced Multi-Tenant System with Tourism Support")
-    print("=" * 80)
-    
-    # Mock tenant configs
-    tenant_configs = {
-        'company-a': {'name': 'SiamTech Bangkok HQ', 'model': 'llama3.1:8b', 'language': 'th'},
-        'company-b': {'name': 'SiamTech Chiang Mai Regional', 'model': 'llama3.1:8b', 'language': 'th'},
-        'company-c': {'name': 'SiamTech International', 'model': 'llama3.1:8b', 'language': 'en'}
-    }
-    
-    # Initialize enhanced agent
-    try:
-        agent = ModularEnhancedAgent(tenant_configs)
-        print(f"✅ Agent initialized with modular support: {agent.modular_available}")
-        print(f"🏢 Supported companies: {agent.supported_companies}")
-    except Exception as e:
-        print(f"❌ Agent initialization failed: {e}")
-        return False
-    
-    # Test cases for each company
-    test_cases = [
-        # Company A - Enterprise
-        {
-            'tenant': 'company-a',
-            'question': 'พนักงาน senior มีใครบ้าง',
-            'expected_system': 'modular',
-            'expected_type': 'EnterprisePrompt'
-        },
-        
-        # Company B - Tourism (🆕)
-        {
-            'tenant': 'company-b', 
-            'question': 'มีโปรเจคท่องเที่ยวอะไรบ้าง',
-            'expected_system': 'modular',
-            'expected_type': 'TourismPrompt'
-        },
-        {
-            'tenant': 'company-b',
-            'question': 'ลูกค้าโรงแรมในเชียงใหม่',
-            'expected_system': 'modular', 
-            'expected_type': 'TourismPrompt'
-        },
-        
-        # Company C - Fallback
-        {
-            'tenant': 'company-c',
-            'question': 'Which projects have highest revenue',
-            'expected_system': 'fallback',
-            'expected_type': 'original_enhanced'
-        }
-    ]
-    
-    results = []
-    
-    for test_case in test_cases:
-        print(f"\n🧪 Testing {test_case['tenant'].upper()}: {test_case['question']}")
-        
-        try:
-            # Mock process (since we don't have full AI service)
-            result = {
-                'success': True,
-                'system_type': 'modular_prompts' if test_case['expected_system'] == 'modular' else 'original_enhanced_agent',
-                'modular_system_used': test_case['expected_system'] == 'modular',
-                'prompt_type': test_case['expected_type'],
-                'tenant_id': test_case['tenant']
-            }
-            
-            # Check if result matches expectations
-            system_correct = (
-                (result['modular_system_used'] and test_case['expected_system'] == 'modular') or
-                (not result['modular_system_used'] and test_case['expected_system'] == 'fallback')
-            )
-            
-            status = "✅" if system_correct else "❌"
-            print(f"   {status} System: {result['system_type']}")
-            print(f"   {status} Modular Used: {result['modular_system_used']}")
-            print(f"   {status} Expected: {test_case['expected_system']}")
-            
-            results.append({
-                'tenant': test_case['tenant'],
-                'success': system_correct,
-                'system_used': 'modular' if result['modular_system_used'] else 'fallback'
-            })
-            
-        except Exception as e:
-            print(f"   ❌ Test failed: {e}")
-            results.append({'tenant': test_case['tenant'], 'success': False, 'error': str(e)})
-    
-    # Summary
-    print(f"\n📊 Test Results Summary:")
-    print("=" * 50)
-    
-    total_tests = len(results)
-    successful_tests = len([r for r in results if r.get('success')])
-    modular_tests = len([r for r in results if r.get('system_used') == 'modular'])
-    
-    print(f"Total Tests: {total_tests}")
-    print(f"Successful: {successful_tests}")
-    print(f"Success Rate: {(successful_tests/total_tests*100):.1f}%")
-    print(f"Modular System Used: {modular_tests}/{total_tests}")
-    
-    # Company breakdown
-    for tenant in ['company-a', 'company-b', 'company-c']:
-        tenant_results = [r for r in results if r['tenant'] == tenant]
-        if tenant_results:
-            success_count = len([r for r in tenant_results if r.get('success')])
-            modular_count = len([r for r in tenant_results if r.get('system_used') == 'modular'])
-            print(f"{tenant.upper()}: {success_count}/{len(tenant_results)} successful, {modular_count} modular")
-    
-    overall_success = successful_tests >= (total_tests * 0.8)  # 80% success rate
-    
-    if overall_success:
-        print("\n🎉 INTEGRATION TEST PASSED!")
-        print("✅ Tourism prompts are working correctly")
-        print("✅ Company A (Enterprise) + Company B (Tourism) use modular system")
-        print("✅ Company C falls back to original system as expected")
-    else:
-        print("\n⚠️ INTEGRATION TEST NEEDS ATTENTION")
-        print("🔧 Some components may need fixes")
-    
-    return overall_success
-
-if __name__ == "__main__":
-    import asyncio
-    asyncio.run(test_tourism_integration())
+    # 🔥 FIXED: Add missing methods that original agent has
+    async def process_enhanced_question_streaming(self, question: str, tenant_id: str):
+        """Delegate streaming to original agent"""
+        async for chunk in self.original_agent.process_enhanced_question_streaming(question, tenant_id):
+            yield chunk

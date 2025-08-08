@@ -9,8 +9,16 @@ from fastapi.responses import StreamingResponse
 from typing import Optional, Dict, Any, List
 from datetime import datetime
 import logging
+from pydantic import BaseModel
 
-# Import existing configs (ใช้ ENHANCED_TENANT_CONFIGS เดิม)
+# Configure logging
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger(__name__)
+
+# =============================================================================
+# TENANT CONFIGURATIONS (EXISTING)
+# =============================================================================
+
 ENHANCED_TENANT_CONFIGS = {
     'company-a': {
         'name': 'SiamTech Main Office',
@@ -41,7 +49,10 @@ ENHANCED_TENANT_CONFIGS = {
     }
 }
 
-# FastAPI App Setup
+# =============================================================================
+# FASTAPI APP SETUP
+# =============================================================================
+
 app = FastAPI(
     title="SiamTech Modular Multi-Tenant RAG Service",
     description="Enhanced RAG with modular company-specific prompts",
@@ -56,6 +67,10 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# =============================================================================
+# ENHANCED AGENT INITIALIZATION (MODULAR SUPPORT)
+# =============================================================================
+
 # Initialize Enhanced Agent with Modular Support
 try:
     from integration_bridge import ModularEnhancedAgent
@@ -67,6 +82,7 @@ try:
         print("🔄 Company B,C: Original enhanced agent (fallback)")
     else:
         print("⚠️ Modular prompts not available, using original enhanced agent for all companies")
+        
 except ImportError as e:
     print(f"⚠️ Modular system not found: {e}")
     print("🔄 Falling back to original enhanced agent...")
@@ -81,9 +97,10 @@ except ImportError as e:
         print("✅ Original Universal Prompt System loaded")
     except Exception as fallback_error:
         print(f"❌ Universal Prompt System also failed: {fallback_error}")
+        from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
         enhanced_agent = EnhancedPostgresOllamaAgent()
         print("🔄 Using basic enhanced agent")
-
+        
 except Exception as e:
     print(f"❌ Modular Enhanced Agent failed: {e}")
     print("🔄 Falling back to original enhanced agent...")
@@ -96,7 +113,32 @@ except Exception as e:
         print(f"❌ All systems failed: {fallback_error}")
         raise fallback_error
 
-# Dependencies
+# =============================================================================
+# PYDANTIC MODELS
+# =============================================================================
+
+class EnhancedRAGQuery(BaseModel):
+    query: str
+    tenant_id: Optional[str] = None
+    include_metadata: bool = True
+    max_results: int = 20
+
+class EnhancedRAGResponse(BaseModel):
+    answer: str
+    success: bool
+    tenant_id: str
+    data_source_used: str
+    sql_query: Optional[str] = None
+    processing_time: Optional[float] = None
+    system_type: Optional[str] = None
+    modular_system_used: Optional[bool] = None
+    architecture: Optional[str] = None
+    prompt_type: Optional[str] = None
+
+# =============================================================================
+# DEPENDENCIES
+# =============================================================================
+
 def get_tenant_id(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID")) -> str:
     """Extract and validate tenant ID"""
     tenant_id = x_tenant_id or "company-a"
@@ -104,22 +146,38 @@ def get_tenant_id(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID")
         raise HTTPException(400, f"Invalid tenant: {tenant_id}")
     return tenant_id
 
-# Main Endpoints
-@app.post("/enhanced-rag-query")
+def validate_tenant_id(tenant_id: str) -> bool:
+    """Validate if tenant ID exists"""
+    return tenant_id in ENHANCED_TENANT_CONFIGS
+
+# =============================================================================
+# CORE ENDPOINTS
+# =============================================================================
+
+@app.post("/enhanced-rag-query", response_model=EnhancedRAGResponse)
 async def enhanced_rag_query(
-    request: Dict[str, Any],
+    request: EnhancedRAGQuery,
     tenant_id: str = Depends(get_tenant_id)
 ):
     """🎯 Main query endpoint with modular prompt support"""
     
-    question = request.get('query') or request.get('question')
-    if not question:
-        raise HTTPException(400, "No query provided")
+    # Override tenant_id if provided in request
+    if request.tenant_id and validate_tenant_id(request.tenant_id):
+        tenant_id = request.tenant_id
     
     try:
-        result = await enhanced_agent.process_enhanced_question(question, tenant_id)
-        return result
+        start_time = time.time()
+        result = await enhanced_agent.process_enhanced_question(request.query, tenant_id)
+        processing_time = time.time() - start_time
+        
+        # Ensure processing time is included
+        if 'processing_time' not in result:
+            result['processing_time'] = processing_time
+            
+        return EnhancedRAGResponse(**result)
+        
     except Exception as e:
+        logger.error(f"Enhanced query processing failed for {tenant_id}: {e}")
         raise HTTPException(500, f"Enhanced query processing failed: {str(e)}")
 
 @app.get("/health")
@@ -136,7 +194,7 @@ async def enhanced_health_check():
             modular_statistics = enhanced_agent.get_modular_statistics()
             modular_companies = len(modular_statistics.get('companies_supported', []))
     except Exception as e:
-        pass
+        logger.warning(f"Could not get modular statistics: {e}")
     
     # ตรวจสอบ original enhanced agent capabilities
     original_features = []
@@ -147,8 +205,8 @@ async def enhanced_health_check():
             original_features.append("schema_discovery")
         if hasattr(enhanced_agent, 'business_mapper'):
             original_features.append("business_logic_mapping")
-    except:
-        pass
+    except Exception as e:
+        logger.warning(f"Could not check original features: {e}")
     
     return {
         "status": "healthy",
@@ -203,25 +261,32 @@ async def enhanced_health_check():
         "timestamp": datetime.now().isoformat()
     }
 
-
 @app.get("/modular-status")
 async def modular_system_status():
     """📊 ตรวจสอบสถานะ modular system"""
     
     if hasattr(enhanced_agent, 'get_modular_statistics'):
-        stats = enhanced_agent.get_modular_statistics()
-        
-        return {
-            "status": "active" if stats['modular_system_available'] else "fallback_only",
-            "modular_system": stats,
-            "features": [
-                "Company-specific prompt isolation",
-                "Gradual migration support", 
-                "Automatic fallback mechanism",
-                "Statistics tracking"
-            ],
-            "architecture": "hybrid_modular_enhanced"
-        }
+        try:
+            stats = enhanced_agent.get_modular_statistics()
+            
+            return {
+                "status": "active" if stats['modular_system_available'] else "fallback_only",
+                "modular_system": stats,
+                "features": [
+                    "Company-specific prompt isolation",
+                    "Gradual migration support", 
+                    "Automatic fallback mechanism",
+                    "Statistics tracking"
+                ],
+                "architecture": "hybrid_modular_enhanced",
+                "deployment_strategy": "gradual_company_migration"
+            }
+        except Exception as e:
+            return {
+                "status": "error",
+                "error": str(e),
+                "fallback": "Using original enhanced agent"
+            }
     else:
         return {
             "status": "not_available",
@@ -230,7 +295,6 @@ async def modular_system_status():
             "architecture": "original_enhanced_only"
         }
 
-    
 @app.post("/test-modular-vs-original")
 async def test_modular_vs_original():
     """🧪 ทดสอบเปรียบเทียบ modular vs original"""
@@ -293,23 +357,45 @@ async def test_modular_vs_original():
         }
     }
 
-# Legacy endpoints compatibility
+# =============================================================================
+# ENHANCED ENDPOINTS (FROM ORIGINAL)
+# =============================================================================
+
 @app.post("/enhanced-rag-query-streaming")
 async def enhanced_rag_query_streaming(
-    request: Dict[str, Any],
+    request: EnhancedRAGQuery,
     tenant_id: str = Depends(get_tenant_id)
 ):
-    """🔄 Streaming endpoint (ใช้ original agent)"""
+    """🔄 Streaming endpoint (ใช้ original agent streaming)"""
     
-    question = request.get('query') or request.get('question')
-    if not question:
-        raise HTTPException(400, "No query provided")
+    if request.tenant_id and validate_tenant_id(request.tenant_id):
+        tenant_id = request.tenant_id
     
     async def generate_streaming_response():
         try:
-            async for chunk in enhanced_agent.process_enhanced_question_streaming(question, tenant_id):
-                yield f"data: {json.dumps(chunk)}\n\n"
-                await asyncio.sleep(0.01)
+            config = ENHANCED_TENANT_CONFIGS[tenant_id]
+            
+            # 📊 Send initial metadata
+            metadata = {
+                "type": "metadata",
+                "tenant_id": tenant_id,
+                "tenant_name": config["name"],
+                "model": config["model"],
+                "status": "started",
+                "system_type": "streaming"
+            }
+            yield f"data: {json.dumps(metadata)}\n\n"
+
+            # 🔥 Process question with streaming
+            if hasattr(enhanced_agent, 'process_enhanced_question_streaming'):
+                async for chunk in enhanced_agent.process_enhanced_question_streaming(request.query, tenant_id):
+                    yield f"data: {json.dumps(chunk)}\n\n"
+                    await asyncio.sleep(0.01)
+            else:
+                # Fallback for non-streaming agent
+                result = await enhanced_agent.process_enhanced_question(request.query, tenant_id)
+                yield f"data: {json.dumps({'type': 'answer', 'content': result['answer']})}\n\n"
+                
         except Exception as e:
             error_data = {"type": "error", "message": f"เกิดข้อผิดพลาด: {str(e)}"}
             yield f"data: {json.dumps(error_data)}\n\n"
@@ -317,37 +403,180 @@ async def enhanced_rag_query_streaming(
     return StreamingResponse(
         generate_streaming_response(),
         media_type="text/event-stream",
-        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*",
+            "Access-Control-Allow-Headers": "*"
+        }
     )
 
-if __name__ == "__main__":
-    modular_status = "✅ Available" if hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available else "❌ Not Available"
+@app.get("/tenants/enhanced")
+async def list_enhanced_tenants():
+    """List all tenants with enhanced capabilities information"""
+    tenants = []
     
-    print("🚀 SiamTech Modular Multi-Tenant RAG Service v4.0")
-    print("=" * 80)
-    print("🎯 Modular Features:")
-    print("   • Company-specific prompt isolation")
-    print("   • Hybrid modular + original system")
-    print("   • Gradual migration support")
-    print("   • Automatic fallback mechanism")
-    print(f"   • Modular System: {modular_status}")
-    print("")
-    print("🧠 Enhanced Features:")
-    print("   • Smart SQL Generation with Pattern Matching")
-    print("   • Business Intelligence & Automated Insights")
-    print("   • Enhanced Prompt Engineering")
-    print("   • Advanced Error Recovery & Fallback")
-    print("")
-    print(f"📊 Companies: {list(ENHANCED_TENANT_CONFIGS.keys())}")
-    
-    if hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available:
-        print("🎭 Company A: Modular prompts (EnterprisePrompt)")
-        print("🔄 Company B,C: Original enhanced agent (UniversalPrompt)")
-    else:
-        print("🔄 All Companies: Original enhanced agent (UniversalPrompt)")
+    for tid, config in ENHANCED_TENANT_CONFIGS.items():
+        # Determine system type
+        modular_available = hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available
+        system_type = "modular_prompts" if (modular_available and tid == 'company-a') else "original_enhanced"
+        prompt_type = "EnterprisePrompt" if (modular_available and tid == 'company-a') else "UniversalPrompt"
         
-    print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434')}")
-    print("=" * 80)
+        tenants.append({
+            "tenant_id": tid,
+            "name": config["name"],
+            "model": config["model"],
+            "language": config["language"],
+            "business_type": config["business_type"],
+            "description": config["description"],
+            "specialization": config["specialization"],
+            "key_strengths": config["key_strengths"],
+            "system_type": system_type,
+            "prompt_type": prompt_type,
+            "enhanced_capabilities": [
+                "smart_sql_with_business_logic",
+                "pattern_recognition_queries", 
+                "automated_business_insights",
+                "context_aware_responses",
+                "domain_specific_optimization"
+            ]
+        })
+    
+    return {
+        "tenants": tenants,
+        "global_enhancements": {
+            "sql_generation": "AI + Pattern Matching + Business Logic",
+            "response_quality": "Structured business analysis with insights",
+            "modular_support": "Company-specific prompts with gradual migration"
+        }
+    }
+
+# =============================================================================
+# LEGACY COMPATIBILITY ENDPOINTS
+# =============================================================================
+
+@app.post("/rag-query", response_model=EnhancedRAGResponse)
+async def legacy_rag_query(
+    request: EnhancedRAGQuery,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Legacy RAG endpoint with enhanced backend (backward compatibility)"""
+    return await enhanced_rag_query(request, tenant_id)
+
+@app.post("/smart-sql-query", response_model=EnhancedRAGResponse)
+async def legacy_smart_sql_query(
+    request: EnhancedRAGQuery,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """Legacy smart SQL endpoint with enhanced backend"""
+    return await enhanced_rag_query(request, tenant_id)
+
+# =============================================================================
+# OPENAI COMPATIBILITY
+# =============================================================================
+
+@app.post("/v1/chat/completions")
+async def openai_chat_completions(
+    request: Dict[str, Any],
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """OpenAI-compatible endpoint"""
+    try:
+        messages = request.get("messages", [])
+        stream = request.get("stream", False)
+        
+        if not messages:
+            raise HTTPException(400, "No messages provided")
+        
+        user_message = messages[-1].get("content", "")
+        
+        if stream:
+            # Handle streaming
+            async def generate_openai_streaming():
+                try:
+                    config = ENHANCED_TENANT_CONFIGS[tenant_id]
+                    
+                    initial_chunk = {
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": f"siamtech-modular-{config['model']}",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"role": "assistant", "content": ""},
+                            "finish_reason": None
+                        }]
+                    }
+                    yield f"data: {json.dumps(initial_chunk)}\n\n"
+                    
+                    # Process with modular agent
+                    result = await enhanced_agent.process_enhanced_question(user_message, tenant_id)
+                    
+                    response_chunk = {
+                        "id": f"chatcmpl-{int(time.time())}",
+                        "object": "chat.completion.chunk",
+                        "created": int(time.time()),
+                        "model": f"siamtech-modular-{config['model']}",
+                        "choices": [{
+                            "index": 0,
+                            "delta": {"content": result.get('answer', '')},
+                            "finish_reason": "stop"
+                        }]
+                    }
+                    yield f"data: {json.dumps(response_chunk)}\n\n"
+                    yield "data: [DONE]\n\n"
+                    
+                except Exception as e:
+                    error_chunk = {
+                        "error": {"message": str(e), "type": "internal_error"}
+                    }
+                    yield f"data: {json.dumps(error_chunk)}\n\n"
+
+            return StreamingResponse(
+                generate_openai_streaming(),
+                media_type="text/event-stream",
+                headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+            )
+        else:
+            result = await enhanced_agent.process_enhanced_question(user_message, tenant_id)
+            config = ENHANCED_TENANT_CONFIGS[tenant_id]
+            
+            return {
+                "id": f"chatcmpl-{int(time.time())}",
+                "object": "chat.completion",
+                "created": int(time.time()),
+                "model": f"siamtech-modular-{config['model']}",
+                "choices": [{
+                    "index": 0,
+                    "message": {
+                        "role": "assistant", 
+                        "content": result.get("answer", "")
+                    },
+                    "finish_reason": "stop"
+                }],
+                "usage": {
+                    "prompt_tokens": len(user_message.split()),
+                    "completion_tokens": len(result.get("answer", "").split()),
+                    "total_tokens": len(user_message.split()) + len(result.get("answer", "").split())
+                }
+            }
+            
+    except Exception as e:
+        raise HTTPException(500, f"Chat completions failed: {str(e)}")
+
+# =============================================================================
+# MAIN APPLICATION
+# =============================================================================
+
+if __name__ == "__main__":
+    print("🔧 DEBUG: About to start uvicorn...")
+    print(f"🎯 Enhanced agent type: {type(enhanced_agent)}")
+    print(f"🏨 Tourism available: {hasattr(enhanced_agent, 'modular_available')}")
+    
+    # เพิ่มบรรทัดนี้
+    import time
+    time.sleep(2)
+    print("🚀 Starting uvicorn now...")
     
     uvicorn.run(
         "enhanced_multi_agent_service:app",
@@ -357,3 +586,4 @@ if __name__ == "__main__":
         access_log=True,
         log_level="info"
     )
+    

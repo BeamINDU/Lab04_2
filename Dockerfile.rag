@@ -20,35 +20,27 @@ RUN pip install --no-cache-dir --upgrade pip && \
 # Copy configuration files
 COPY tenant_config.yaml .
 
-#  Copy refactored modules FIRST
+# Copy refactored modules FIRST
 COPY refactored_modules/ ./refactored_modules/
 
 # Copy main application files
-COPY smart_prompt_system.py .
-COPY enterprise_schema_validator.py .
 COPY enhanced_multi_agent_service.py .
+COPY integration_bridge.py .
 
-# 🔧 Copy original enhanced_postgres_agent.py as fallback
-COPY enhanced_postgres_agent.py .
+# Copy company prompts (if they exist)
+COPY company_prompts/ ./company_prompts/
+COPY core_system/ ./core_system/
+COPY shared_components/ ./shared_components/
 
-# Verify refactored modules are copied correctly
-RUN echo "📁 Verifying refactored modules:" && \
-    ls -la refactored_modules/ && \
-    echo "🔍 Checking main refactored agent:" && \
-    head -5 refactored_modules/enhanced_postgres_agent_refactored.py && \
-    echo "✅ Refactored modules verification complete"
-
-# Legacy compatibility
-COPY enhanced_multi_agent_service.py multi_agent_service.py
-
-# Create logs directory
-RUN mkdir -p /app/logs
+# Create necessary directories and files
+RUN mkdir -p /app/logs /app/shared_components && \
+    touch /app/shared_components/__init__.py
 
 # Set environment variables
 ENV PYTHONPATH=/app
 ENV PYTHONUNBUFFERED=1
 
-# Enhanced health check script
+# Create a simple health check script
 COPY <<'HEALTH_EOF' /app/healthcheck.py
 #!/usr/bin/env python3
 import requests
@@ -61,16 +53,8 @@ def test_health():
         response = requests.get(f"http://localhost:{port}/health", timeout=10)
         
         if response.status_code == 200:
-            data = response.json()
-            # Check for enhanced features
-            if 'enhancement_features' in data:
-                print("✅ Enhanced RAG Service is healthy (Refactored)")
-                print(f"Version: {data.get('version', 'unknown')}")
-                print(f"Features: {len(data.get('enhancement_features', []))}")
-                return True
-            else:
-                print("⚠️  Basic RAG Service is healthy")
-                return True
+            print("✅ RAG Service is healthy")
+            return True
         else:
             print(f"❌ Health check failed: HTTP {response.status_code}")
             return False
@@ -92,7 +76,7 @@ RUN chmod +x /app/healthcheck.py
 # Expose port
 EXPOSE 5000
 
-# Enhanced health check with longer intervals for startup
+# Health check
 HEALTHCHECK --interval=30s --timeout=15s --start-period=60s --retries=3 \
     CMD python /app/healthcheck.py
 
@@ -102,5 +86,5 @@ RUN useradd --create-home --shell /bin/bash siamtech && \
 
 USER siamtech
 
-# Run the enhanced multi-agent service
+# 🔥 FIXED: Run the enhanced multi-agent service properly
 CMD ["python", "enhanced_multi_agent_service.py"]

@@ -1,3 +1,5 @@
+# Fixed company_prompts/company_a/enterprise_prompt.py
+
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -18,19 +20,30 @@ except ImportError:
 from shared_components.logging_config import logger
 
 class EnterprisePrompt(BaseCompanyPrompt):
-    """🏦 Enterprise Banking Prompt - ใช้ existing components แทนการสร้างใหม่"""
+    """🏦 Enterprise Banking Prompt - Fixed Version"""
     
     def __init__(self, company_config: Dict[str, Any]):
         super().__init__(company_config)
         
-        # ใช้ existing business logic instead of custom files
+        # 🔧 FIX: Initialize business_rules FIRST with fallback
+        self.business_rules = self._get_fallback_business_rules()
+        
+        # ใช้ existing business logic if available
         if EXISTING_COMPONENTS_AVAILABLE:
-            self.business_mapper = BusinessLogicMapper()
-            self.schema_service = SchemaDiscoveryService()
-            self.business_rules = self.business_mapper.get_business_logic('company-a')
+            try:
+                self.business_mapper = BusinessLogicMapper()
+                self.schema_service = SchemaDiscoveryService()
+                existing_rules = self.business_mapper.get_business_logic('company-a')
+                
+                # 🔧 FIX: Update instead of replace
+                if existing_rules:
+                    self.business_rules.update(existing_rules)
+                    
+                logger.info("✅ Using existing refactored components")
+            except Exception as e:
+                logger.warning(f"⚠️ Failed to load existing components: {e}")
         else:
-            # Fallback to hardcoded rules
-            self.business_rules = self._get_fallback_business_rules()
+            logger.info("ℹ️ Using fallback business rules")
         
         logger.info(f"✅ EnterprisePrompt initialized for {self.company_name}")
     
@@ -95,14 +108,20 @@ class EnterprisePrompt(BaseCompanyPrompt):
     def _format_schema_with_existing_service(self) -> str:
         """ใช้ existing schema discovery service"""
         try:
-            company_schema = self.schema_service.get_enhanced_schema_info('company-a')
+            # 🔧 FIX: Use correct method name
+            company_schema = self.schema_service.get_schema_info('company-a')
             
             formatted = "📊 โครงสร้างฐานข้อมูล Enterprise:\n"
             
-            for table_name, table_info in company_schema.get('tables', {}).items():
-                formatted += f"• {table_name}: {table_info.get('description', '')}\n"
-                for column in table_info.get('columns', [])[:5]:  # แสดง 5 คอลัมน์แรก
-                    formatted += f"  - {column}\n"
+            tables = company_schema.get('tables', {})
+            if tables:
+                for table_name, table_info in tables.items():
+                    formatted += f"• {table_name}: {table_info.get('description', '')}\n"
+                    columns = table_info.get('columns', [])
+                    for column in columns[:5]:  # แสดง 5 คอลัมน์แรก
+                        formatted += f"  - {column}\n"
+            else:
+                formatted += "• employees, projects, employee_projects (standard schema)"
             
             return formatted
         except Exception as e:
@@ -124,6 +143,9 @@ class EnterprisePrompt(BaseCompanyPrompt):
         """Format business rules from existing mapper or fallback"""
         
         rules_text = ""
+        if not self.business_rules:
+            return "• Standard enterprise business rules apply"
+            
         for category, rules in self.business_rules.items():
             rules_text += f"• {category}:\n"
             if isinstance(rules, dict):
@@ -132,7 +154,7 @@ class EnterprisePrompt(BaseCompanyPrompt):
             else:
                 rules_text += f"  - {rules}\n"
         
-        return rules_text
+        return rules_text if rules_text else "• Standard enterprise business rules"
     
     def _get_enterprise_sql_rules(self) -> str:
         """Enterprise-specific SQL rules"""
@@ -145,7 +167,7 @@ class EnterprisePrompt(BaseCompanyPrompt):
 7. การวิเคราะห์ performance: เน้น ROI และ efficiency"""
     
     def _get_fallback_business_rules(self) -> Dict[str, Any]:
-        """Fallback business rules if existing mapper not available"""
+        """🔧 FIX: Standalone fallback rules (no self reference)"""
         return {
             'employee_levels': {
                 'junior': 'salary < 40000',
@@ -163,7 +185,7 @@ class EnterprisePrompt(BaseCompanyPrompt):
         }
     
     def _load_business_rules(self) -> Dict[str, Any]:
-        """Required by base class"""
+        """🔧 FIX: Required by base class - return existing rules"""
         return self.business_rules
     
     def _load_schema_mappings(self) -> Dict[str, Any]:
