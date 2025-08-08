@@ -1,5 +1,5 @@
-# enhanced_postgres_agent_refactored.py
-# 🚀 Main Enhanced PostgreSQL + Ollama Agent (Refactored Version)
+# 🔥 Enhanced PostgreSQL Agent - Universal Prompt System Integration
+# refactored_modules/enhanced_postgres_agent_refactored.py
 
 import os
 import time
@@ -18,24 +18,30 @@ from .business_logic_mapper import BusinessLogicMapper
 from .ai_service import AIService
 from .prompt_generator import PromptGenerator
 from .intent_classifier import IntentClassifier
-from .few_shot_sql_engine import EnhancedFewShotAgent
+
+# 🔥 CHANGED: Import Universal Prompt System instead of Few-Shot
+# from .few_shot_sql_engine import EnhancedFewShotAgent  # ❌ เอาออก
+from .universal_prompt_system import UniversalPromptGenerator  # ✅ เพิ่ม
+
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
+
 def convert_decimal_to_float(obj: Any) -> Any:
-        """🔧 Convert Decimal objects to float recursively"""
-        if isinstance(obj, Decimal):
-            return float(obj)
-        elif isinstance(obj, dict):
-            return {k: convert_decimal_to_float(v) for k, v in obj.items()}
-        elif isinstance(obj, list):
-            return [convert_decimal_to_float(item) for item in obj]
-        elif isinstance(obj, tuple):
-            return tuple(convert_decimal_to_float(item) for item in obj)
-        else:
-            return obj  
+    """🔧 Convert Decimal objects to float recursively"""
+    if isinstance(obj, Decimal):
+        return float(obj)
+    elif isinstance(obj, dict):
+        return {k: convert_decimal_to_float(v) for k, v in obj.items()}
+    elif isinstance(obj, list):
+        return [convert_decimal_to_float(item) for item in obj]
+    elif isinstance(obj, tuple):
+        return tuple(convert_decimal_to_float(item) for item in obj)
+    else:
+        return obj  
+
 class EnhancedPostgresOllamaAgent:
-    """🚀 Enhanced PostgreSQL + Ollama Agent - Refactored Version with Clean Architecture"""
+    """🚀 Enhanced PostgreSQL + Ollama Agent - Universal Prompt System Version"""
     
     def __init__(self):
         # Initialize all services
@@ -49,14 +55,13 @@ class EnhancedPostgresOllamaAgent:
         self.prompt_generator = PromptGenerator(self.schema_service, self.business_mapper)
         self.intent_classifier = IntentClassifier()
         
-        self.few_shot_agent = EnhancedFewShotAgent(self)
-
-        logger.info("✅ Enhanced PostgreSQL Ollama Agent initialized with clean architecture")
-
-  
+        # 🔥 CHANGED: Use Universal Prompt System instead of Few-Shot
+        self.universal_prompt_generator = UniversalPromptGenerator()
         
+        logger.info("✅ Enhanced PostgreSQL Ollama Agent initialized with Universal Prompt System")
+
     async def process_enhanced_question(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """Enhanced question processing with refactored architecture"""
+        """Enhanced question processing with Universal Prompt System"""
         if tenant_id not in self.tenant_configs:
             return {
                 "answer": f"ไม่รู้จัก tenant: {tenant_id}",
@@ -78,9 +83,9 @@ class EnhancedPostgresOllamaAgent:
                 question, tenant_id, intent_result, config
             )
         
-        # 🗄️ ถ้าเป็นคำถามที่ต้องใช้ SQL (เดิม)
+        # 🗄️ ถ้าเป็นคำถามที่ต้องใช้ SQL - ใช้ Universal Prompt System
         try:
-            # 1. Enhanced SQL generation
+            # 1. Enhanced SQL generation with Universal Prompt
             sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
             
             # 2. Execute SQL query
@@ -104,20 +109,20 @@ class EnhancedPostgresOllamaAgent:
             return {
                 "answer": ai_response,
                 "success": True,
-                "data_source_used": f"enhanced_sql_{config.model_name}",
+                "data_source_used": f"universal_prompt_{config.model_name}",  # 🔥 CHANGED
                 "sql_query": sql_query,
                 "db_results_count": len(processed_results),
                 "tenant_id": tenant_id,
                 "model_used": config.model_name,
-                "sql_generation_method": sql_metadata["method"],
+                "sql_generation_method": sql_metadata["method"],  # 🔥 จะเป็น "universal_prompt_system"
                 "confidence": sql_metadata["confidence"],
                 "processing_time_seconds": processing_time,
                 "intent_detected": intent_result['intent'],
-                "enhancement_version": "2.1_refactored"
+                "enhancement_version": "3.0_universal_prompt"  # 🔥 CHANGED
             }
             
         except Exception as e:
-            logger.error(f"Enhanced processing failed for {tenant_id}: {e}")
+            logger.error(f"Universal Prompt processing failed for {tenant_id}: {e}")
             
             # Enhanced fallback
             try:
@@ -135,7 +140,7 @@ class EnhancedPostgresOllamaAgent:
                     "confidence": "low",
                     "processing_time_seconds": processing_time,
                     "intent_detected": intent_result['intent'],
-                    "enhancement_version": "2.1_refactored"
+                    "enhancement_version": "3.0_universal_prompt_fallback"
                 }
             except Exception as ai_error:
                 return {
@@ -147,7 +152,7 @@ class EnhancedPostgresOllamaAgent:
                 }
 
     async def process_enhanced_question_streaming(self, question: str, tenant_id: str):
-        """🔥 Fixed streaming version with proper Decimal handling"""
+        """🔥 Fixed streaming version with Universal Prompt System"""
         if tenant_id not in self.tenant_configs:
             yield {
                 "type": "error",
@@ -159,11 +164,11 @@ class EnhancedPostgresOllamaAgent:
         start_time = datetime.now()
 
         try:
-            # 📊 Step 1: Generate SQL
+            # 📊 Step 1: Generate SQL with Universal Prompt
             yield {
                 "type": "status",
-                "message": "🔍 กำลังสร้าง SQL Query...",
-                "step": "sql_generation"
+                "message": "🎯 กำลังสร้าง SQL Query ด้วย Universal Prompt System...",
+                "step": "universal_sql_generation"
             }
             
             sql_query, sql_metadata = await self.generate_enhanced_sql(question, tenant_id)
@@ -171,7 +176,7 @@ class EnhancedPostgresOllamaAgent:
             yield {
                 "type": "sql_generated",
                 "sql_query": sql_query,
-                "method": sql_metadata["method"],
+                "method": sql_metadata["method"],  # "universal_prompt_system"
                 "confidence": sql_metadata["confidence"]
             }
 
@@ -230,7 +235,7 @@ class EnhancedPostgresOllamaAgent:
                 "type": "answer_complete",
                 "sql_query": sql_query,
                 "db_results_count": len(processed_results),
-                "sql_generation_method": sql_metadata["method"],
+                "sql_generation_method": sql_metadata["method"],  # "universal_prompt_system"
                 "confidence": sql_metadata["confidence"],
                 "processing_time_seconds": processing_time,
                 "tenant_id": tenant_id,
@@ -238,15 +243,39 @@ class EnhancedPostgresOllamaAgent:
             }
 
         except Exception as e:
-            logger.error(f"Enhanced streaming processing failed for {tenant_id}: {e}")
+            logger.error(f"Universal Prompt streaming processing failed for {tenant_id}: {e}")
             yield {
                 "type": "error",
-                "message": f"เกิดข้อผิดพลาดในระบบ: {str(e)}"
+                "message": f"เกิดข้อผิดพลาดในระบบ Universal Prompt: {str(e)}"
             }
+
+    async def generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
+        """🎯 Enhanced SQL generation with Universal Prompt System"""
+        
+        try:
+            logger.info(f"🎯 Using Universal Prompt System for: {question[:50]}...")
+            
+            # 🔥 CHANGED: Use Universal Prompt instead of Few-Shot
+            sql_query, metadata = await self.universal_prompt_generator.generate_sql_with_universal_prompt(
+                question, tenant_id, self
+            )
+            
+            # เช็คว่า SQL ที่ได้มีคุณภาพดีไหม
+            if self._is_high_quality_sql(sql_query, question):
+                logger.info(f"✅ Universal Prompt Success! Method: {metadata['method']}")
+                return sql_query, metadata
+            else:
+                logger.warning("🔄 Universal Prompt SQL quality insufficient, falling back...")
+                
+        except Exception as e:
+            logger.warning(f"🔄 Universal Prompt failed: {e}, falling back to original method")
+        
+        # Fallback to original enhanced method
+        return await self.original_generate_enhanced_sql(question, tenant_id)
+
     async def original_generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
         """Enhanced SQL generation with business intelligence and pattern matching (Original Method)"""
         
-        # 📋 Copy โค้ดทั้งหมดจาก generate_enhanced_sql เดิมมาใส่ที่นี่
         config = self.tenant_configs[tenant_id]
         schema_info = self.schema_service.get_schema_info(tenant_id)
         business_logic = self.business_mapper.get_business_logic(tenant_id)
@@ -298,8 +327,9 @@ class EnhancedPostgresOllamaAgent:
                 'confidence': 'low'
             }
             return fallback_sql, metadata
+
     def _is_high_quality_sql(self, sql: str, question: str) -> bool:
-        """🔍 ตรวจสอบคุณภาพ SQL ที่ Few-Shot สร้าง"""
+        """🔍 ตรวจสอบคุณภาพ SQL ที่ Universal Prompt สร้าง"""
         sql_upper = sql.upper()
         question_lower = question.lower()
         
@@ -328,50 +358,32 @@ class EnhancedPostgresOllamaAgent:
                 return False
         
         return True
-    async def generate_enhanced_sql(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
-        """🧠 Enhanced SQL generation with Few-Shot Learning FIRST"""
-        
-        try:
-            logger.info(f"🧠 Attempting Few-Shot Learning for: {question[:50]}...")
-            
-            sql_query, metadata = await self.few_shot_agent.generate_sql_with_few_shot(question, tenant_id)
-            
-            # เช็คว่า SQL ที่ได้มีคุณภาพดีไหม
-            if self._is_high_quality_sql(sql_query, question):
-                logger.info(f"✅ Few-Shot Success! Method: {metadata['method']}")
-                return sql_query, metadata
-            else:
-                logger.warning("🔄 Few-Shot SQL quality insufficient, falling back...")
-                
-        except Exception as e:
-            logger.warning(f"🔄 Few-Shot failed: {e}, falling back to original method")
-        
-        # Fallback to original enhanced method
-        return await self.original_generate_enhanced_sql(question, tenant_id)
-    
-    def get_few_shot_statistics(self) -> Dict[str, Any]:
-        """📊 ดึงสถิติการใช้งาน Few-Shot Learning"""
-        if hasattr(self.few_shot_agent, 'few_shot_engine'):
-            engine = self.few_shot_agent.few_shot_engine
-            
-            total_examples = sum(len(examples) for examples in engine.sql_examples.values())
-            categories = list(engine.sql_examples.keys())
+
+    def get_universal_prompt_stats(self) -> Dict[str, Any]:
+        """📊 ดึงสถิติการใช้งาน Universal Prompt System"""
+        if hasattr(self, 'universal_prompt_generator'):
+            stats = self.universal_prompt_generator.get_statistics()
             
             return {
-                "few_shot_enabled": True,
-                "total_examples": total_examples,
-                "categories": categories,
-                "examples_per_category": {
-                    cat: len(examples) for cat, examples in engine.sql_examples.items()
-                },
-                "engine_version": "1.0",
-                "status": "active"
+                "universal_prompt_enabled": True,
+                "version": "3.0",
+                "companies_supported": len(self.universal_prompt_generator.company_profiles),
+                "business_types": [
+                    profile.business_type 
+                    for profile in self.universal_prompt_generator.company_profiles.values()
+                ],
+                "templates_available": len(self.universal_prompt_generator.prompt_templates),
+                "pattern_matchers": len(self.universal_prompt_generator.pattern_matchers),
+                "status": "active",
+                **stats
             }
         else:
             return {
-                "few_shot_enabled": False,
-                "error": "Few-Shot agent not initialized"
+                "universal_prompt_enabled": False,
+                "error": "Universal Prompt System not initialized"
             }
+
+    # 🔧 Keep all existing methods (unchanged)
     def _analyze_question_intent(self, question: str, tenant_id: str) -> Dict[str, Any]:
         """Analyze question to determine intent and suggest patterns"""
         question_lower = question.lower()
@@ -528,7 +540,7 @@ class EnhancedPostgresOllamaAgent:
             "sql_used": False,
             "processing_type": "ai_conversational",
             "tenant_id": tenant_id,
-            "enhancement_version": "2.1_refactored"
+            "enhancement_version": "3.0_universal_prompt"
         }
 
     def _create_greeting_prompt(self, config: TenantConfig) -> str:
@@ -638,8 +650,6 @@ If the question relates to company data, suggest that you can help analyze infor
 If it's a general question, respond in a friendly and helpful manner
 Don't try to generate SQL or access databases:"""
 
-
-        
     def _create_enhanced_fallback_prompt(self, question: str, tenant_id: str) -> str:
         """Create enhanced fallback prompt with business context"""
         config = self.tenant_configs[tenant_id]
@@ -673,41 +683,88 @@ Provide a professional, informative response:"""
 ให้คำตอบที่เป็นมืออาชีพและให้ข้อมูล:"""
 
 
-# For testing the refactored agent
-async def test_refactored_agent():
-    """Test the refactored agent with sample questions"""
+# 🧪 Test Function สำหรับ Universal Prompt Integration
+async def test_universal_prompt_integration():
+    """🧪 ทดสอบ Universal Prompt Integration กับ Enhanced Agent"""
     agent = EnhancedPostgresOllamaAgent()
     
     test_scenarios = [
         {
             "tenant": "company-a",
             "questions": [
-                "สวัสดีครับ",
-                "พนักงานคนไหนมีเงินเดือนสูงที่สุด 5 คน",
-                "โปรเจคไหนมีงบประมาณมากกว่า 2 ล้านบาท",
-                "แผนกไหนมีพนักงานมากที่สุดและเงินเดือนเฉลี่ยเท่าไหร่"
+                "สวัสดีครับ",  # Should be conversational
+                "มีพนักงานกี่คนในแต่ละแผนก",  # Should use Universal Prompt
+                "พนักงานคนไหนมีเงินเดือนสูงที่สุด"  # Should use Universal Prompt
+            ]
+        },
+        {
+            "tenant": "company-b", 
+            "questions": [
+                "มีโปรเจคท่องเที่ยวอะไรบ้าง",  # Should use Universal Prompt (Tourism)
+                "โปรเจคโรงแรมมีกี่โปรเจค"  # Should use Universal Prompt (Tourism)
+            ]
+        },
+        {
+            "tenant": "company-c",
+            "questions": [
+                "Which projects have highest USD budget",  # Should use Universal Prompt (International)
+                "How many international employees"  # Should use Universal Prompt (International)
             ]
         }
     ]
     
+    print("🧪 Testing Universal Prompt System Integration")
+    print("=" * 70)
+    
     for scenario in test_scenarios:
-        print(f"\n{'='*60}")
-        print(f"🏢 Testing {scenario['tenant'].upper()} (Refactored)")
-        print(f"{'='*60}")
+        print(f"\n🏢 Testing {scenario['tenant'].upper()}")
+        print("-" * 50)
         
-        for question in scenario['questions'][:2]:  # Test only 2 questions
+        for question in scenario['questions'][:2]:  # Test only 2 questions per tenant
             print(f"\n❓ Question: {question}")
-            print("-" * 50)
             
             result = await agent.process_enhanced_question(question, scenario['tenant'])
             
-            print(f"✅ Success: {result['success']}")
-            print(f"🔍 Data Source: {result.get('data_source_used', 'N/A')}")
-            print(f"🎯 Intent: {result.get('intent_detected', 'N/A')}")
-            print(f"💬 Answer: {result['answer'][:200]}...")
-
+            # Extract key information
+            success = result.get('success', False)
+            sql_method = result.get('sql_generation_method', 'N/A')
+            data_source = result.get('data_source_used', 'N/A')
+            fallback_mode = result.get('fallback_mode', False)
+            sql_query = result.get('sql_query')
+            
+            # Determine status
+            if 'universal_prompt' in sql_method:
+                status = "✅ UNIVERSAL PROMPT SUCCESS"
+            elif sql_method == 'few_shot_learning':
+                status = "⚠️ USING FEW-SHOT (Not Universal)"
+            elif fallback_mode:
+                status = "❌ FALLBACK MODE"
+            elif 'conversational' in data_source:
+                status = "💬 CONVERSATIONAL (Expected)"
+            else:
+                status = "❓ UNKNOWN METHOD"
+            
+            print(f"   {status}")
+            print(f"   Success: {success}")
+            print(f"   SQL Method: {sql_method}")
+            print(f"   Data Source: {data_source}")
+            print(f"   Has SQL: {'Yes' if sql_query else 'No'}")
+            print(f"   Answer: {result['answer'][:100]}...")
+    
+    # Test Universal Prompt Statistics
+    print(f"\n📊 Universal Prompt System Statistics:")
+    print("-" * 50)
+    
+    try:
+        stats = agent.get_universal_prompt_stats()
+        print(f"   Enabled: {stats.get('universal_prompt_enabled', False)}")
+        print(f"   Version: {stats.get('version', 'N/A')}")
+        print(f"   Companies: {stats.get('companies_supported', 0)}")
+        print(f"   Status: {stats.get('status', 'N/A')}")
+    except Exception as e:
+        print(f"   ❌ Error getting stats: {e}")
 
 if __name__ == "__main__":
-    print("🚀 Enhanced PostgreSQL Ollama Agent - Refactored Version")
-    print("🔧 Clean Architecture with Separated Concerns")
-    asyncio.run(test_refactored_agent())
+    print("🚀 Enhanced PostgreSQL Ollama Agent - Universal Prompt Integration")
+    print("🎯 Now using Universal Prompt System instead of Few-Shot Learning")
+    asyncio.run(test_universal_prompt_integration())

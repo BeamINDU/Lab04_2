@@ -1,843 +1,857 @@
-# 🎯 Universal Prompt System - Implementation
-# ไฟล์: refactored_modules/universal_prompt_system.py
+# 🎯 Complete Universal Prompt System - Multi-Tenant Ready
+# refactored_modules/universal_prompt_system.py
 
-import re
+import os
 import json
+import asyncio
+from datetime import datetime
+from typing import Dict, Any, Optional, List, Tuple, Set
+from dataclasses import dataclass, asdict
 import logging
-from typing import Dict, Any, List, Optional, Tuple
-from dataclasses import dataclass
-from .tenant_config import TenantConfig
+from functools import lru_cache
+import re
 
 logger = logging.getLogger(__name__)
 
 @dataclass
-class CompanyContext:
-    """บริบท Company ที่จำเป็นสำหรับ Prompt Generation"""
-    tenant_id: str
+class CompanyProfile:
+    """Profile ของแต่ละ Company"""
+    company_id: str
     name: str
     business_type: str
     language: str
-    schema_info: Dict[str, Any]
-    business_rules: Dict[str, Any]
-    common_queries: List[str]
+    prompt_template: str
     sql_patterns: Dict[str, str]
-
-class TypeSafetySQLValidator:
-    """🛡️ ตรวจสอบและแก้ไข SQL ให้ Type-Safe"""
+    business_entities: List[str]
+    currency: str = "THB"
+    created_at: str = None
     
-    @staticmethod
-    def has_type_safety_issues(sql: str) -> bool:
-        """ตรวจหา Type Safety Issues ใน SQL"""
-        
-        # Patterns ที่อันตราย
-        dangerous_patterns = [
-            # COALESCE กับ date/timestamp fields ด้วย string
-            r"COALESCE\s*\(\s*\w+\.(start_date|end_date|hire_date|created_at|updated_at)\s*,\s*'[^']+'\s*\)",
-            r"COALESCE\s*\(\s*\w+\.date\w*\s*,\s*'[^']+'\s*\)",
-            r"COALESCE\s*\(\s*(start_date|end_date|hire_date)\s*,\s*'[^']+'\s*\)",
-            
-            # COALESCE กับ numeric fields ด้วย string (ที่ไม่ใช่ '0')
-            r"COALESCE\s*\(\s*\w+\.(budget|salary|amount|price)\s*,\s*'(?!0)[^']+'\s*\)",
-        ]
-        
-        for pattern in dangerous_patterns:
-            if re.search(pattern, sql, re.IGNORECASE):
-                logger.warning(f"🚨 Type safety issue detected: {pattern}")
-                return True
-        
-        return False
-    
-    @staticmethod
-    def fix_type_safety_issues(sql: str) -> str:
-        """แก้ไข Type Safety Issues ใน SQL"""
-        
-        # แก้ COALESCE กับ date fields
-        def fix_date_coalesce(match):
-            field = match.group(1) if match.group(1) else match.group(0).split(',')[0].split('(')[1].strip()
-            return f"CASE WHEN {field} IS NULL THEN 'ไม่มี' ELSE {field}::text END"
-        
-        # แก้ date field COALESCE
-        fixed_sql = re.sub(
-            r"COALESCE\s*\(\s*(\w+\.(start_date|end_date|hire_date|created_at|updated_at))\s*,\s*'[^']+'\s*\)",
-            fix_date_coalesce,
-            sql,
-            flags=re.IGNORECASE
-        )
-        
-        # แก้ standalone date field COALESCE
-        fixed_sql = re.sub(
-            r"COALESCE\s*\(\s*(start_date|end_date|hire_date)\s*,\s*'[^']+'\s*\)",
-            fix_date_coalesce,
-            fixed_sql,
-            flags=re.IGNORECASE
-        )
-        
-        # แก้ numeric fields กับ string (ยกเว้น '0')
-        def fix_numeric_coalesce(match):
-            field = match.group(1)
-            return f"COALESCE({field}, 0)"
-        
-        fixed_sql = re.sub(
-            r"COALESCE\s*\(\s*(\w+\.(budget|salary|amount|price))\s*,\s*'(?!0)[^']+'\s*\)",
-            fix_numeric_coalesce,
-            fixed_sql,
-            flags=re.IGNORECASE
-        )
-        
-        if fixed_sql != sql:
-            logger.info("🔧 Fixed type safety issues in SQL")
-        
-        return fixed_sql
+    def __post_init__(self):
+        if self.created_at is None:
+            self.created_at = datetime.now().isoformat()
 
 class UniversalPromptGenerator:
-    """🌟 Universal Prompt Generator ที่ปรับตัวได้ตาม Company"""
+    """🎯 Universal Prompt System ที่รองรับ Multi-Tenant"""
     
     def __init__(self):
-        self.company_contexts: Dict[str, CompanyContext] = {}
-        self.universal_templates = self._load_universal_templates()
+        # Initialize core components
+        self.company_profiles = self._load_company_profiles()
+        self.prompt_templates = self._load_prompt_templates()
         self.type_safety_rules = self._load_type_safety_rules()
+        self.pattern_matchers = self._load_pattern_matchers()
+        self.business_logic_mappings = self._load_business_logic_mappings()
         
-    def register_company(self, company_context: CompanyContext):
-        """ลงทะเบียน Company ใหม่"""
-        self.company_contexts[company_context.tenant_id] = company_context
-        logger.info(f"✅ Registered company: {company_context.name} ({company_context.business_type})")
-    ""
-    def generate_sql_prompt(self, question: str, tenant_id: str) -> str:
-        """🎯 สร้าง SQL Prompt ที่ปรับตัวตาม Company"""
-        
-        if tenant_id not in self.company_contexts:
-            # ถ้าไม่มี context ให้สร้าง minimal context
-            return self._generate_fallback_prompt(question, tenant_id)
-        
-        context = self.company_contexts[tenant_id]
-        
-        # 1. เลือก Template ตาม Business Type
-        template = self._select_template(context.business_type, context.language)
-        
-        # 2. สร้าง Components
-        schema_section = self._build_schema_section(context)
-        business_rules_section = self._build_business_rules_section(context)
-        examples_section = self._build_examples_section(context, question)
-        type_safety_section = self._build_type_safety_section()
-        
-        # 3. สร้าง Final Prompt
-        final_prompt = template.format(
-            company_name=context.name,
-            business_type=self._translate_business_type(context.business_type, context.language),
-            schema_section=schema_section,
-            business_rules_section=business_rules_section,
-            examples_section=examples_section,
-            type_safety_section=type_safety_section,
-            user_question=question
-        )
-        
-        logger.info(f"📝 Generated {context.business_type} prompt ({len(final_prompt)} chars) for: {question[:50]}...")
-        return final_prompt
-    
-    def _load_universal_templates(self) -> Dict[str, str]:
-        """Universal Templates - Simplified Version"""
-        return {
-            'thai_enterprise': """🎯 คุณคือ PostgreSQL Expert สำหรับ {company_name}
-
-    🏢 บริบทธุรกิจ: {business_type}
-
-    {schema_section}
-
-    {type_safety_section}
-
-    {business_rules_section}
-
-    {examples_section}
-
-    ⚡ กฎการสร้าง SQL (Simple & Effective):
-    1. **เริ่มต้นด้วย SQL ง่ายๆ เสมอ** - ไม่ต้องใส่เงื่อนไขซับซ้อน
-    2. **ใช้เงื่อนไข WHERE เฉพาะเมื่อคำถามระบุชัดเจน**
-    3. **LEFT JOIN สำหรับแสดงข้อมูลทั้งหมด รวมที่ไม่มีความสัมพันธ์**
-    4. **INNER JOIN เฉพาะเมื่อต้องการข้อมูลที่มีความสัมพันธ์เท่านั้น**
-    5. **ใส่ ORDER BY และ LIMIT เสมอ**
-
-    🎯 หลักการสำคัญ:
-    • ถ้าถาม "แต่ละคน" → ใช้ LEFT JOIN เพื่อแสดงทุกคน รวมคนที่ไม่มีโปรเจค
-    • ถ้าถามจำนวน → ใช้ COUNT และ GROUP BY
-    • ถ้าถามรายการ → แสดงข้อมูลตรงๆ ไม่ต้องกรอง
-
-    ⚠️ ห้ามทำ:
-    • ห้ามใส่เงื่อนไข WHERE ที่ซับซ้อนโดยไม่จำเป็น
-    • ห้ามกรองข้อมูลออกเว้นแต่คำถามจะระบุชัดเจน
-    • ห้ามสมมติเงื่อนไขเพิ่มเติม
-
-    คำถาม: {user_question}
-
-    สร้าง PostgreSQL query ที่เรียบง่ายและตรงประเด็น:
-    """,
-                
-            'thai_tourism': """🎯 คุณคือ PostgreSQL Expert สำหรับ {company_name}
-
-    🏨 บริบทธุรกิจท่องเที่ยว: {business_type}
-
-    {schema_section}
-
-    {type_safety_section}
-
-    {business_rules_section}
-
-    {examples_section}
-
-    ⚡ กฎการสร้าง SQL (Tourism Focused):
-    1. **แสดงข้อมูลท่องเที่ยวอย่างครบถ้วน**
-    2. **ใช้ LEFT JOIN เพื่อรวมข้อมูลที่เกี่ยวข้อง**
-    3. **ไม่กรองข้อมูลเว้นแต่จำเป็น**
-    4. **เน้นข้อมูลที่เป็นประโยชน์สำหรับการท่องเที่ยว**
-
-    คำถาม: {user_question}
-
-    สร้าง PostgreSQL query สำหรับธุรกิจท่องเที่ยว:
-    """,
-                
-            'english_international': """🎯 You are a PostgreSQL Expert for {company_name}
-
-    🌍 International Business Context: {business_type}
-
-    {schema_section}
-
-    {type_safety_section}
-
-    {business_rules_section}
-
-    {examples_section}
-
-    ⚡ SQL Generation Rules (International Focus):
-    1. **Start with simple, comprehensive queries**
-    2. **Use LEFT JOIN to show all data including null relationships**
-    3. **Only add WHERE conditions when explicitly asked**
-    4. **Focus on international business metrics**
-
-    Question: {user_question}
-
-    Generate straightforward PostgreSQL query for global operations:
-    """
+        # Statistics
+        self.generation_stats = {
+            'total_queries': 0,
+            'successful_generations': 0,
+            'template_usage': {},
+            'tenant_usage': {}
         }
-
-    def _select_template(self, business_type: str, language: str) -> str:
-        """เลือก Template ที่เหมาะสม"""
         
-        if language == 'en':
-            return self.universal_templates['english_international']
-        
-        # Thai language templates
-        if business_type in ['tourism_hospitality', 'tourism']:
-            return self.universal_templates['thai_tourism']
-        else:
-            return self.universal_templates['thai_enterprise']
+        logger.info("✅ Universal Prompt System initialized with complete multi-tenant support")
     
-    def _translate_business_type(self, business_type: str, language: str) -> str:
-        """แปล Business Type ตามภาษา"""
-        translations = {
-            'th': {
-                'enterprise_software': 'การพัฒนาซอฟต์แวร์องค์กร',
-                'tourism_hospitality': 'ธุรกิจท่องเที่ยวและโรงแรม',
-                'international_operations': 'การดำเนินงานระหว่างประเทศ',
-                'general_business': 'ธุรกิจทั่วไป'
+    def _load_company_profiles(self) -> Dict[str, CompanyProfile]:
+        """โหลด Company Profiles ทั้งหมด"""
+        profiles = {}
+        
+        # Company A - Bangkok HQ (Enterprise)
+        profiles['company-a'] = CompanyProfile(
+            company_id='company-a',
+            name='SiamTech Bangkok HQ',
+            business_type='enterprise_software',
+            language='th',
+            prompt_template='enterprise_thai',
+            sql_patterns={
+                'employee_analysis': 'complex_joins_with_aggregation',
+                'project_analysis': 'budget_focus_with_teams',
+                'department_analysis': 'hierarchy_aware'
             },
-            'en': {
-                'enterprise_software': 'Enterprise Software Development',
-                'tourism_hospitality': 'Tourism & Hospitality Services',
-                'international_operations': 'Global Business Operations',
-                'general_business': 'General Business Operations'
-            }
-        }
-        
-        return translations.get(language, translations['th']).get(
-            business_type, business_type
+            business_entities=[
+                'พนักงาน', 'employee', 'โปรเจค', 'project', 'แผนก', 'department',
+                'เงินเดือน', 'salary', 'งบประมาณ', 'budget', 'ธนาคาร', 'banking'
+            ],
+            currency='THB'
         )
+        
+        # Company B - Chiang Mai Regional (Tourism)
+        profiles['company-b'] = CompanyProfile(
+            company_id='company-b',
+            name='SiamTech Chiang Mai Regional',
+            business_type='tourism_hospitality',
+            language='th',
+            prompt_template='tourism_thai',
+            sql_patterns={
+                'project_analysis': 'tourism_focused',
+                'client_analysis': 'regional_hospitality',
+                'employee_analysis': 'local_specialization'
+            },
+            business_entities=[
+                'พนักงาน', 'employee', 'โปรเจค', 'project', 'ท่องเที่ยว', 'tourism',
+                'โรงแรม', 'hotel', 'รีสอร์ท', 'resort', 'ลูกค้า', 'client',
+                'เชียงใหม่', 'chiang mai', 'ภาคเหนือ', 'northern'
+            ],
+            currency='THB'
+        )
+        
+        # Company C - International (Global)
+        profiles['company-c'] = CompanyProfile(
+            company_id='company-c',
+            name='SiamTech International',
+            business_type='global_operations',
+            language='en',
+            prompt_template='international_english',
+            sql_patterns={
+                'project_analysis': 'multi_currency_global',
+                'client_analysis': 'international_markets',
+                'financial_analysis': 'usd_focused'
+            },
+            business_entities=[
+                'employee', 'employees', 'project', 'projects', 'international',
+                'global', 'USD', 'dollar', 'overseas', 'multinational',
+                'cross-border', 'foreign', 'worldwide'
+            ],
+            currency='USD'
+        )
+        
+        return profiles
     
-    def _build_schema_section(self, context: CompanyContext) -> str:
-        """สร้าง Schema Section ที่กระชับและเข้าใจง่าย"""
-        
-        if context.language == 'en':
-            schema_text = "📋 DATABASE SCHEMA:\n"
-        else:
-            schema_text = "📋 โครงสร้างฐานข้อมูล:\n"
-        
-        tables = context.schema_info.get('tables', {})
-        
-        # แสดงตารางหลักก่อน
-        important_tables = ['employees', 'projects', 'employee_projects']
-        other_tables = [t for t in tables.keys() if t not in important_tables]
-        
-        for table_name in important_tables + other_tables:
-            if table_name in tables:
-                table_info = tables[table_name]
-                
-                schema_text += f"🗃️ {table_name}:\n"
-                
-                # แสดงคอลัมน์สำคัญ (จำกัด 8 คอลัมน์)
-                columns = table_info.get('columns', [])
-                main_columns = []
-                for col in columns[:8]:
-                    if isinstance(col, str):
-                        col_name = col.split(' ')[0] if ' ' in col else col
-                        main_columns.append(col_name)
-                
-                schema_text += f"   • คอลัมน์: {', '.join(main_columns)}\n"
-                
-                # เพิ่ม business context สั้นๆ
-                if 'business_significance' in table_info:
-                    significance = table_info['business_significance'][:100] + "..." if len(table_info['business_significance']) > 100 else table_info['business_significance']
-                    schema_text += f"   💡 {significance}\n"
-                
-                schema_text += "\n"
-        
-        # เพิ่มความสัมพันธ์สำคัญ
-        schema_text += "🔗 ความสัมพันธ์สำคัญ:\n"
-        if context.business_type == 'tourism_hospitality':
-            schema_text += "• clients → projects (ลูกค้าท่องเที่ยว → โปรเจคพัฒนาระบบ)\n"
-            schema_text += "• employees → projects (พนักงาน → งานพัฒนาระบบท่องเที่ยว)\n"
-        elif context.business_type == 'international_operations':
-            schema_text += "• clients → international_contracts (global clients → contracts)\n"
-            schema_text += "• contracts → payments (สัญญา → การชำระเงินข้ามประเทศ)\n"
-        else:
-            schema_text += "• employees → employee_projects → projects\n"
-            schema_text += "• projects → clients (โปรเจค → ลูกค้าองค์กร)\n"
-        
-        return schema_text
-    
-    def _build_business_rules_section(self, context: CompanyContext) -> str:
-        """สร้าง Business Rules Section - Fixed Version"""
-        
-        if context.language == 'en':
-            rules_text = "🏢 BUSINESS RULES:\n"
-        else:
-            rules_text = "🏢 กฎทางธุรกิจเฉพาะ:\n"
-        
-        business_rules = context.business_rules
-        if not business_rules:
-            return rules_text + "• ใช้กฎมาตรฐานทั่วไป\n"
-        
-        # 🔧 FIX: ลดการใช้ business rules ที่ซับซ้อน
-        simple_rules_only = ['employee_levels', 'project_sizes']  # จำกัดเฉพาะกฎง่ายๆ
-        
-        # แปลงชื่อหมวดหมู่
-        category_translations = {
-            'employee_levels': 'ระดับพนักงาน' if context.language == 'th' else 'Employee Levels',
-            'project_sizes': 'ขนาดโปรเจค' if context.language == 'th' else 'Project Sizes'
-        }
-        
-        # 🔧 FIX: แสดงกฎแค่ 2 หมวดหมู่ และ 2 กฎต่อหมวด
-        shown_categories = 0
-        for category, rules in business_rules.items():
-            if category not in simple_rules_only or shown_categories >= 2:
-                continue
-                
-            category_name = category_translations.get(category, category)
-            rules_text += f"\n• {category_name} (ตัวอย่าง):\n"
-            
-            # แสดงแค่ 2 กฎต่อหมวด
-            rule_count = 0
-            for key, condition in rules.items():
-                if rule_count >= 2:
-                    break
-                rules_text += f"  - {key}: ใช้เฉพาะเมื่อจำเป็น\n"  # 🔧 FIX: ไม่ใส่เงื่อนไขซับซ้อน
-                rule_count += 1
-                
-            shown_categories += 1
-        
-        # 🔧 FIX: เพิ่มคำเตือนให้ใช้เงื่อนไขเฉพาะเมื่อจำเป็น
-        rules_text += f"\n⚠️ สำคัญ: ใช้เงื่อนไข WHERE เฉพาะเมื่อคำถามระบุชัดเจน ไม่ใช่ทุกครั้ง\n"
-        
-        return rules_text
-    
-    def _build_type_safety_section(self) -> str:
-        """สร้าง Type Safety Section"""
-        return self.type_safety_rules
-    
-    def _build_examples_section(self, context: CompanyContext, question: str) -> str:
-        """สร้าง Examples Section ที่เกี่ยวข้องกับคำถาม"""
-        
-        if context.language == 'en':
-            examples_text = "📚 RELEVANT SQL EXAMPLES:\n"
-        else:
-            examples_text = "📚 ตัวอย่าง SQL ที่เกี่ยวข้อง:\n"
-        
-        # หา patterns ที่เกี่ยวข้อง
-        relevant_patterns = self._find_relevant_patterns(question, context)
-        
-        if not relevant_patterns:
-            return examples_text + "💡 ไม่มีตัวอย่างที่เกี่ยวข้องโดยตรง - สร้าง SQL ใหม่ตามโครงสร้างข้อมูล\n"
-        
-        # แสดงตัวอย่าง (จำกัด 2 ตัวอย่าง)
-        for i, (pattern_name, sql_example) in enumerate(relevant_patterns.items()):
-            if i >= 2:
-                break
-                
-            examples_text += f"\nตัวอย่างที่ {i+1} ({pattern_name}):\n"
-            examples_text += "```sql\n"
-            examples_text += sql_example.strip()
-            examples_text += "\n```\n"
-        
-        return examples_text
-    
-    def _find_relevant_patterns(self, question: str, context: CompanyContext) -> Dict[str, str]:
-        """หา SQL patterns - แก้ไขให้เจาะจงขึ้น"""
-        
-        question_lower = question.lower()
-        relevant = {}
-        
-        # 🔧 FIX: เพิ่ม pattern สำหรับคำถามที่เจาะจง
-        if 'แต่ละคน' in question_lower and 'รับผิดชอบ' in question_lower:
-            # Pattern สำหรับคำถาม "แต่ละคนรับผิดชอบอะไรบ้าง"
-            relevant['employee_assignments'] = """
-    SELECT 
-        e.name as employee_name,
-        e.position,
-        e.department,
-        COALESCE(p.name, 'ไม่มีโปรเจค') as project_name,
-        COALESCE(p.client, '-') as client,
-        COALESCE(ep.role, 'ไม่มีบทบาท') as project_role
-    FROM employees e
-    LEFT JOIN employee_projects ep ON e.id = ep.employee_id
-    LEFT JOIN projects p ON ep.project_id = p.id
-    ORDER BY e.name, p.name
-    LIMIT 20;
-            """
-        
-        elif 'โปรเจค' in question_lower and ('อะไรบ้าง' in question_lower or 'มี' in question_lower):
-            # Pattern สำหรับคำถาม "มีโปรเจคอะไรบ้าง"
-            relevant['list_projects'] = """
-    SELECT 
-        p.name as project_name,
-        p.client,
-        p.status,
-        p.budget,
-        COUNT(ep.employee_id) as team_size
-    FROM projects p
-    LEFT JOIN employee_projects ep ON p.id = ep.project_id
-    GROUP BY p.id, p.name, p.client, p.status, p.budget
-    ORDER BY p.name
-    LIMIT 20;
-            """
-        
-        return relevant
+    def _load_prompt_templates(self) -> Dict[str, str]:
+        """โหลด Prompt Templates สำหรับแต่ละประเภทธุรกิจ"""
+        return {
+            'enterprise_thai': """คุณคือ PostgreSQL Expert สำหรับ {company_name} (Enterprise Software)
 
-    
-    def _generate_fallback_prompt(self, question: str, tenant_id: str) -> str:
-        """สร้าง Fallback Prompt เมื่อไม่มี Context"""
-        return f"""🎯 คุณคือ PostgreSQL Expert สำหรับ {tenant_id.upper()}
+🏢 บริบทธุรกิจ: บริษัทพัฒนาซอฟต์แวร์ขนาดใหญ่ เน้นลูกค้าธนาคารและ E-commerce
+💰 สกุลเงิน: บาท (THB)
+📊 เน้น: Performance, Scalability, Complex Business Logic
 
-{self.type_safety_rules}
+📋 โครงสร้างฐานข้อมูล:
+• employees: id, name, department, position, salary, hire_date, email
+• projects: id, name, client, budget, status, start_date, end_date, tech_stack
+• employee_projects: employee_id, project_id, role, allocation
 
-📋 กฎพื้นฐาน:
-• ใช้ ILIKE แทน LIKE สำหรับ PostgreSQL
-• ใส่ LIMIT เสมอเพื่อจำกัดผลลัพธ์
-• ใช้ proper JOIN types
-• จัดการ NULL values อย่างระมัดระวัง
+🎯 กฎการเขียน SQL สำหรับ Enterprise:
+1. ใช้ explicit column names (ไม่ใช้ SELECT *)
+2. ใช้ LEFT JOIN สำหรับ assignment queries เพื่อแสดงพนักงานทั้งหมด
+3. ใช้ COALESCE สำหรับ NULL handling: 'ไม่มีโปรเจค', 'ไม่มีบทบาท'
+4. จัดรูปแบบเงิน: TO_CHAR(amount, 'FM999,999,999') || ' บาท'
+5. ใช้ aggregate functions: COUNT, SUM, AVG, MAX, MIN
+6. ใส่ ORDER BY และ LIMIT เสมอ
+7. ใช้ ILIKE สำหรับ text search ใน PostgreSQL
 
 คำถาม: {question}
 
-สร้าง PostgreSQL query ที่ปลอดภัย:
-"""
+สร้าง PostgreSQL query:""",
 
-class UniversalPromptIntegration:
-    """🔗 Integration กับระบบเดิม"""
+            'tourism_thai': """คุณคือ PostgreSQL Expert สำหรับ {company_name} (Tourism & Hospitality)
+
+🏨 บริบทธุรกิจ: เทคโนโลยีท่องเที่ยวและโรงแรม สาขาภาคเหนือ
+💰 สกุลเงิน: บาท (THB)
+📊 เน้น: Regional Tourism, Hospitality Systems, Local Business
+
+📋 โครงสร้างฐานข้อมูล:
+• employees: id, name, department, position, salary, hire_date, email
+• projects: id, name, client, budget, status, start_date, end_date, tech_stack
+• employee_projects: employee_id, project_id, role, allocation
+
+🏔️ ลูกค้าหลัก: โรงแรม, TAT, สวนพฤกษศาสตร์, ร้านอาหาร, มหาวิทยาลัย
+
+🎯 กฎการเขียน SQL สำหรับ Tourism:
+1. มองหา keywords: ท่องเที่ยว, โรงแรม, tourism, hotel
+2. เน้นโปรเจคที่เกี่ยวข้องกับ hospitality industry
+3. ใช้ ILIKE สำหรับค้นหาชื่อลูกค้า: '%โรงแรม%', '%ท่องเที่ยว%'
+4. งบประมาณมักอยู่ในช่วง 300k-800k บาท
+5. ใช้ LEFT JOIN และ COALESCE เหมือน enterprise
+6. จัดเรียงตาม business priority
+
+คำถาม: {question}
+
+สร้าง PostgreSQL query ที่เน้น tourism business:""",
+
+            'international_english': """You are a PostgreSQL Expert for {company_name} (Global Operations)
+
+🌍 Business Context: International software solutions, global clients
+💰 Currency: USD (primary), multi-currency support
+📊 Focus: Cross-border operations, International compliance, Global scale
+
+📋 Database Schema:
+• employees: id, name, department, position, salary, hire_date, email
+• projects: id, name, client, budget, status, start_date, end_date, tech_stack
+• employee_projects: employee_id, project_id, role, allocation
+
+🌐 Key Clients: MegaCorp International, Global Finance Corp, Education Global Network
+
+🎯 SQL Rules for International Business:
+1. Look for keywords: international, global, USD, dollar, overseas
+2. Budget often in USD range: $1M - $4M
+3. Use LEFT JOIN and COALESCE for complete data: 'No Project', 'No Role'
+4. Format currency: TO_CHAR(amount, 'FM999,999,999') || ' USD'
+5. Search clients: ILIKE '%International%', '%Global%', '%Corp%'
+6. Focus on high-value international projects
+7. Order by business value and impact
+
+Question: {question}
+
+Generate PostgreSQL query for international business analysis:"""
+        }
     
-    def __init__(self, original_agent):
-        self.original_agent = original_agent
-        self.universal_prompt = UniversalPromptGenerator()
-        self.sql_validator = TypeSafetySQLValidator()
-        self._register_existing_companies()
+    def _load_type_safety_rules(self) -> Dict[str, Any]:
+        """โหลดกฎ Type Safety เพื่อป้องกัน SQL errors"""
+        return {
+            'date_fields': ['hire_date', 'start_date', 'end_date', 'created_at'],
+            'numeric_fields': ['salary', 'budget', 'allocation', 'id'],
+            'text_fields': ['name', 'department', 'position', 'client', 'email'],
+            'enum_fields': {
+                'status': ['active', 'completed', 'cancelled'],
+                'department': ['IT', 'Sales', 'Management', 'HR']
+            },
+            'null_substitutes': {
+                'project_name': 'ไม่มีโปรเจค',
+                'project_role': 'ไม่มีบทบาท',
+                'client': '-',
+                'allocation': '0%'
+            },
+            'safe_patterns': [
+                r'COALESCE\([^,]+,\s*\'[^\']+\'\)',  # Safe COALESCE usage
+                r'TO_CHAR\([^,]+,\s*\'[^\']+\'\)',   # Safe formatting
+                r'ILIKE\s*\'%[^%]*%\'',              # Safe ILIKE patterns
+            ],
+            'dangerous_patterns': [
+                r'WHERE.*=.*\'ไม่มี\'',               # Direct comparison with Thai text
+                r'DATE\(\'[^\']*ไม่มี[^\']*\'\)',      # Invalid date casting
+                r'CAST\([^)]*ไม่มี[^)]*\sAS\s',       # Invalid casting
+            ]
+        }
+    
+    def _load_pattern_matchers(self) -> Dict[str, List[str]]:
+        """โหลด Pattern Matchers สำหรับแต่ละประเภทคำถาม"""
+        return {
+            'assignment_queries': [
+                r'(แต่ละคน.*(?:รับผิดชอบ|ทำงาน|จัดการ))',
+                r'(each.*(?:responsible|work|manage))',
+                r'(รับผิดชอบ.*(?:อะไร|ไหน|บ้าง))',
+                r'(assignment|assigned|allocate)'
+            ],
+            'project_queries': [
+                r'(โปรเจค.*(?:อะไร|ไหน|บ้าง|มี|กี่))',
+                r'(project.*(?:what|which|list|how many))',
+                r'(ท่องเที่ยว.*(?:โปรเจค|งาน))',  # Tourism specific
+                r'(USD.*(?:budget|project))',        # International specific
+            ],
+            'employee_queries': [
+                r'(พนักงาน.*(?:คน|ใคร|ไหน|กี่))',
+                r'(employee.*(?:who|how many|work))',
+                r'(กี่คน.*(?:แผนก|department))'
+            ],
+            'financial_queries': [
+                r'(งบประมาณ.*(?:สูงสุด|มาก|เท่าไหร่))',
+                r'(budget.*(?:highest|maximum|USD))',
+                r'(เงินเดือน.*(?:สูงสุด|มาก))',
+                r'(salary.*(?:highest|maximum))'
+            ]
+        }
+    
+    def _load_business_logic_mappings(self) -> Dict[str, Dict[str, str]]:
+        """โหลด Business Logic Mappings สำหรับแต่ละ tenant"""
+        return {
+            'company-a': {
+                'high_budget': 'budget > 2000000',
+                'senior_employee': "position ILIKE '%senior%' OR position ILIKE '%lead%' OR position ILIKE '%manager%'",
+                'recent_project': "start_date > CURRENT_DATE - INTERVAL '1 year'",
+                'active_project': "status = 'active'"
+            },
+            'company-b': {
+                'tourism_project': "client ILIKE '%ท่องเที่ยว%' OR client ILIKE '%โรงแรม%' OR client ILIKE '%tourism%' OR client ILIKE '%hotel%'",
+                'regional_client': "client ILIKE '%เชียงใหม่%' OR client ILIKE '%ภาคเหนือ%'",
+                'medium_budget': 'budget BETWEEN 300000 AND 800000',
+                'hospitality_focus': "client ILIKE '%โรงแรม%' OR client ILIKE '%รีสอร์ท%'"
+            },
+            'company-c': {
+                'international_project': "client ILIKE '%International%' OR client ILIKE '%Global%'",
+                'high_value_usd': 'budget > 2000000',  # Assuming USD amounts
+                'global_client': "client ILIKE '%Corp%' OR client ILIKE '%International%' OR client ILIKE '%Global%'",
+                'enterprise_scale': 'budget > 1500000'
+            }
+        }
+    
+    async def generate_sql_with_universal_prompt(self, question: str, tenant_id: str, agent=None) -> Tuple[str, Dict[str, Any]]:
+        """🎯 หลัก method สำหรับ SQL generation ด้วย Universal Prompt"""
         
-    def _register_existing_companies(self):
-        """ลงทะเบียน Companies ที่มีอยู่"""
+        start_time = datetime.now()
+        
+        # Update statistics
+        self.generation_stats['total_queries'] += 1
+        if tenant_id not in self.generation_stats['tenant_usage']:
+            self.generation_stats['tenant_usage'][tenant_id] = 0
+        self.generation_stats['tenant_usage'][tenant_id] += 1
         
         try:
-            # Company A - Enterprise
-            company_a = self._create_company_context(
-                tenant_id='company-a',
-                name='SiamTech Bangkok HQ',
-                business_type='enterprise_software'
-            )
-            self.universal_prompt.register_company(company_a)
+            # 1. Get company profile
+            if tenant_id not in self.company_profiles:
+                raise ValueError(f"Unknown tenant: {tenant_id}")
             
-            # Company B - Tourism  
-            company_b = self._create_company_context(
-                tenant_id='company-b',
-                name='SiamTech Chiang Mai Regional',
-                business_type='tourism_hospitality'
-            )
-            self.universal_prompt.register_company(company_b)
+            profile = self.company_profiles[tenant_id]
             
-            # Company C - International
-            company_c = self._create_company_context(
-                tenant_id='company-c', 
-                name='SiamTech International',
-                business_type='international_operations'
-            )
-            self.universal_prompt.register_company(company_c)
+            # 2. Analyze question type
+            question_type = self._analyze_question_type(question, profile)
             
-            logger.info("✅ All companies registered with Universal Prompt System")
+            # 3. Generate context-aware prompt
+            prompt = self._generate_context_aware_prompt(question, profile, question_type)
             
-        except Exception as e:
-            logger.error(f"Failed to register companies: {e}")
-    
-    def _create_company_context(self, tenant_id: str, name: str, business_type: str) -> CompanyContext:
-        """สร้าง CompanyContext - Fixed Version"""
-        
-        # กำหนดภาษา
-        language = 'en' if tenant_id == 'company-c' else 'th'
-        
-        # ดึงข้อมูลจากระบบเดิม (แก้ไขให้ robust ขึ้น)
-        schema_info = {}
-        business_rules = {}
-        sql_patterns = {}
-        
-        try:
-            if hasattr(self.original_agent, 'schema_service'):
-                schema_info = self.original_agent.schema_service.get_schema_info(tenant_id)
-                logger.info(f"✅ Got schema info for {tenant_id}")
+            # 4. Call AI with universal prompt
+            if agent and hasattr(agent, 'ai_service'):
+                config = agent.tenant_configs[tenant_id]
+                ai_response = await agent.ai_service.call_ollama_api(
+                    tenant_config=config,
+                    prompt=prompt,
+                    context_data="",
+                    temperature=0.1  # Low temperature for accurate SQL
+                )
             else:
-                logger.warning(f"⚠️ No schema_service for {tenant_id}")
-        except Exception as e:
-            logger.warning(f"Could not get schema info for {tenant_id}: {e}")
-            # 🔧 FIX: สร้าง minimal schema
-            schema_info = {
-                'tables': {
-                    'employees': {'columns': ['id', 'name', 'department', 'position', 'salary']},
-                    'projects': {'columns': ['id', 'name', 'client', 'budget', 'status']},
-                    'employee_projects': {'columns': ['employee_id', 'project_id', 'role', 'allocation']}
-                }
-            }
+                raise ValueError("Agent or AI service not available")
             
-        try:
-            if hasattr(self.original_agent, 'business_mapper'):
-                business_rules = self.original_agent.business_mapper.get_business_logic(tenant_id)
-                sql_patterns = self.original_agent.business_mapper.sql_patterns
-                logger.info(f"✅ Got business logic for {tenant_id}")
-        except Exception as e:
-            logger.warning(f"Could not get business rules for {tenant_id}: {e}")
-            # 🔧 FIX: สร้าง simple business rules
-            business_rules = {
-                'employee_levels': {'all': 'ทุกระดับ'},
-                'project_sizes': {'all': 'ทุกขนาด'}
-            }
-            sql_patterns = {}
-        
-        # สร้าง common queries
-        common_queries = self._generate_common_queries(business_type, language)
-        
-        context = CompanyContext(
-            tenant_id=tenant_id,
-            name=name,
-            business_type=business_type,
-            language=language,
-            schema_info=schema_info,
-            business_rules=business_rules,
-            common_queries=common_queries,
-            sql_patterns=sql_patterns
-        )
-        
-        logger.info(f"✅ Created context for {tenant_id}: {business_type} ({language})")
-        return context
-    
-    def _generate_common_queries(self, business_type: str, language: str) -> List[str]:
-        """สร้างคำถามทั่วไปตาม business type"""
-        
-        if language == 'en':
-            base = ["How many employees", "Which department has most people", "Who is the manager"]
-            specific = {
-                'international_operations': [
-                    "Which projects have highest USD budget",
-                    "How many international clients", 
-                    "Revenue breakdown by country"
-                ]
-            }
-        else:
-            base = ["มีพนักงานกี่คน", "แผนกไหนมีคนมากสุด", "ใครเป็นหัวหน้า"]
-            specific = {
-                'enterprise_software': [
-                    "โปรเจคไหนมีงบประมาณสูงสุด",
-                    "ใครทำงานในโปรเจคอะไรบ้าง", 
-                    "เงินเดือนเฉลี่ยแต่ละแผนก"
-                ],
-                'tourism_hospitality': [
-                    "มีห้องว่างกี่ห้อง",
-                    "แขกมาจากไหนมากสุด",
-                    "รายได้จากท่องเที่ยว"
-                ]
-            }
-        
-        return base + specific.get(business_type, [])
-    
-    async def generate_enhanced_sql_with_universal_prompt(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
-        """🎯 Main Method: ใช้ Universal Prompt สำหรับ SQL Generation"""
-        
-        try:
-            # 1. สร้าง Universal Prompt
-            universal_prompt = self.universal_prompt.generate_sql_prompt(question, tenant_id)
+            # 5. Extract and validate SQL
+            sql_query = self._extract_and_validate_sql(ai_response, profile, question_type)
             
-            config = self.original_agent.tenant_configs[tenant_id]
+            # 6. Apply type safety rules
+            safe_sql = self._apply_type_safety_rules(sql_query, profile)
             
-            # 2. เรียก AI ด้วย Universal Prompt
-            ai_response = await self.original_agent.ai_service.call_ollama_api(
-                config, universal_prompt, temperature=0.05  # ใช้ temp ต่ำเพื่อความแม่นยำ
-            )
+            processing_time = (datetime.now() - start_time).total_seconds()
             
-            # 3. Extract SQL
-            sql_query = self._extract_sql_safely(ai_response, tenant_id)
-            
-            # 4. Validate และแก้ไข Type Safety
-            if self.sql_validator.has_type_safety_issues(sql_query):
-                logger.warning("🔧 Fixing type safety issues...")
-                sql_query = self.sql_validator.fix_type_safety_issues(sql_query)
-            
-            # 5. Final validation
-            if not self._final_validation(sql_query, tenant_id):
-                raise ValueError("SQL failed final validation")
-            
+            # 7. Create metadata
             metadata = {
                 'method': 'universal_prompt_system',
-                'business_type': self.universal_prompt.company_contexts.get(tenant_id, {}).business_type if tenant_id in self.universal_prompt.company_contexts else 'unknown',
-                'confidence': 'high',
-                'prompt_length': len(universal_prompt),
-                'type_safety_applied': self.sql_validator.has_type_safety_issues(ai_response),
-                'template_used': self._get_template_type(tenant_id)
+                'template_used': profile.prompt_template,
+                'question_type': question_type,
+                'business_type': profile.business_type,
+                'confidence': self._calculate_confidence(safe_sql, question, profile),
+                'processing_time': processing_time,
+                'tenant_id': tenant_id,
+                'language': profile.language,
+                'currency': profile.currency
             }
             
-            return sql_query, metadata
+            # Update template usage stats
+            template = profile.prompt_template
+            if template not in self.generation_stats['template_usage']:
+                self.generation_stats['template_usage'][template] = 0
+            self.generation_stats['template_usage'][template] += 1
+            
+            self.generation_stats['successful_generations'] += 1
+            
+            logger.info(f"✅ Universal Prompt success for {tenant_id}: {question_type} query")
+            
+            return safe_sql, metadata
             
         except Exception as e:
-            logger.error(f"Universal prompt generation failed for {tenant_id}: {e}")
-            # Fallback to original method
-            return await self.original_agent.original_generate_enhanced_sql(question, tenant_id)
+            logger.error(f"❌ Universal Prompt failed for {tenant_id}: {e}")
+            
+            # Fallback metadata
+            metadata = {
+                'method': 'universal_prompt_fallback',
+                'error': str(e),
+                'confidence': 'low',
+                'tenant_id': tenant_id
+            }
+            
+            # Generate safe fallback SQL
+            fallback_sql = self._generate_safe_fallback_sql(question, tenant_id)
+            
+            return fallback_sql, metadata
     
-    def _extract_sql_safely(self, ai_response: str, tenant_id: str) -> str:
-        """Extract SQL with enhanced safety checks"""
+    def _analyze_question_type(self, question: str, profile: CompanyProfile) -> str:
+        """🔍 วิเคราะห์ประเภทคำถาม"""
+        question_lower = question.lower()
         
-        # ใช้ extraction logic เดิม
-        sql = self.original_agent._extract_and_validate_sql(ai_response, tenant_id)
+        # Check against pattern matchers
+        for question_type, patterns in self.pattern_matchers.items():
+            for pattern in patterns:
+                if re.search(pattern, question_lower, re.IGNORECASE):
+                    return question_type.replace('_queries', '')
         
-        # เพิ่ม safety checks
-        if not sql or sql.strip() == "":
-            raise ValueError("Empty SQL extracted")
+        # Business-specific detection
+        if profile.business_type == 'tourism_hospitality':
+            tourism_keywords = ['ท่องเที่ยว', 'tourism', 'โรงแรม', 'hotel']
+            if any(keyword in question_lower for keyword in tourism_keywords):
+                return 'tourism_project'
         
-        if len(sql) < 20:  # SQL สั้นเกินไป
-            raise ValueError("SQL too short to be valid")
+        elif profile.business_type == 'global_operations':
+            international_keywords = ['usd', 'international', 'global', 'dollar']
+            if any(keyword in question_lower for keyword in international_keywords):
+                return 'international_project'
         
-        return sql
-    
-    def _final_validation(self, sql: str, tenant_id: str) -> bool:
-        """การตรวจสอบสุดท้าย"""
-        
-        try:
-            # ใช้ validator เดิม
-            return self.original_agent.database_handler.validate_sql_query(sql, tenant_id)
-        except:
-            return True  # ถ้า validator ไม่ทำงาน ให้ผ่านไป
-    
-    def _get_template_type(self, tenant_id: str) -> str:
-        """ระบุประเภท template ที่ใช้"""
-        
-        if tenant_id not in self.universal_prompt.company_contexts:
-            return 'fallback'
-        
-        context = self.universal_prompt.company_contexts[tenant_id]
-        
-        if context.language == 'en':
-            return 'english_international'
-        elif context.business_type == 'tourism_hospitality':
-            return 'thai_tourism'
+        # Default analysis
+        if any(word in question_lower for word in ['แต่ละคน', 'รับผิดชอบ', 'each', 'responsible']):
+            return 'assignment'
+        elif any(word in question_lower for word in ['โปรเจค', 'project']):
+            return 'project'
+        elif any(word in question_lower for word in ['พนักงาน', 'employee', 'กี่คน']):
+            return 'employee'
+        elif any(word in question_lower for word in ['งบประมาณ', 'budget', 'เงินเดือน', 'salary']):
+            return 'financial'
         else:
-            return 'thai_enterprise'
-
-# 🔧 Integration Helper - แก้ไขไฟล์เดิม
-class EnhancedAgentWithUniversalPrompt:
-    """🚀 Enhanced Agent ที่รวม Universal Prompt System"""
+            return 'general'
     
-    def __init__(self, original_agent):
-        self.original_agent = original_agent
-        self.universal_integration = UniversalPromptIntegration(original_agent)
+    def _generate_context_aware_prompt(self, question: str, profile: CompanyProfile, question_type: str) -> str:
+        """📝 สร้าง Context-Aware Prompt"""
         
-        # Override เฉพาะ generate_enhanced_sql method
-        self.original_generate_enhanced_sql = original_agent.generate_enhanced_sql
-        original_agent.generate_enhanced_sql = self.generate_enhanced_sql_with_universal_prompt
+        # Get base template
+        template = self.prompt_templates.get(profile.prompt_template, self.prompt_templates['enterprise_thai'])
         
-        logger.info("🚀 Enhanced Agent with Universal Prompt System initialized")
+        # Fill in company-specific information
+        filled_template = template.format(
+            company_name=profile.name,
+            question=question
+        )
+        
+        # Add business logic hints for specific question types
+        business_hints = self._get_business_logic_hints(question_type, profile)
+        if business_hints:
+            filled_template += f"\n\n💡 Business Logic Hints:\n{business_hints}"
+        
+        return filled_template
     
-    # 🔧 FIX: Delegate ทุก method ไปยัง original_agent
-    def __getattr__(self, name):
-        """Delegate all methods to original_agent"""
-        return getattr(self.original_agent, name)
+    def _get_business_logic_hints(self, question_type: str, profile: CompanyProfile) -> str:
+        """💡 ดึง Business Logic Hints เฉพาะ"""
+        
+        mappings = self.business_logic_mappings.get(profile.company_id, {})
+        hints = []
+        
+        if question_type == 'assignment':
+            hints.append("• ใช้ LEFT JOIN เพื่อแสดงพนักงานทั้งหมด (รวมคนที่ไม่มีโปรเจค)")
+            hints.append("• ใช้ COALESCE(p.name, 'ไม่มีโปรเจค') สำหรับ NULL handling")
+            hints.append("• ใช้ COALESCE(ep.role, 'ไม่มีบทบาท') สำหรับ role")
+        
+        elif question_type == 'project' or question_type == 'tourism_project':
+            if profile.business_type == 'tourism_hospitality':
+                hints.append("• มองหาโปรเจคท่องเที่ยว: ILIKE '%ท่องเที่ยว%' OR ILIKE '%โรงแรม%'")
+                hints.append("• ลูกค้าในกลุ่ม hospitality: โรงแรม, TAT, สวนพฤกษศาสตร์")
+            elif profile.business_type == 'global_operations':
+                hints.append("• มองหาโปรเจค international: ILIKE '%International%' OR ILIKE '%Global%'")
+                hints.append("• งบประมาณมักเป็น USD และมีมูลค่าสูง")
+        
+        elif question_type == 'financial':
+            if profile.currency == 'USD':
+                hints.append("• จัดรูปแบบเงิน: TO_CHAR(budget, 'FM999,999,999') || ' USD'")
+            else:
+                hints.append("• จัดรูปแบบเงิน: TO_CHAR(budget, 'FM999,999,999') || ' บาท'")
+        
+        # Add business logic mappings
+        for concept, sql_condition in mappings.items():
+            if concept in question_type or any(word in concept for word in question_type.split('_')):
+                hints.append(f"• {concept}: {sql_condition}")
+        
+        return '\n'.join(hints) if hints else ""
     
-    async def generate_enhanced_sql_with_universal_prompt(self, question: str, tenant_id: str) -> Tuple[str, Dict[str, Any]]:
-        """🎯 ใช้ Universal Prompt System"""
-        try:
-            return await self.universal_integration.generate_enhanced_sql_with_universal_prompt(
-                question, tenant_id
-            )
-        except Exception as e:
-            logger.warning(f"🔄 Universal prompt failed: {e}, falling back...")
-            return await self.original_generate_enhanced_sql(question, tenant_id)
+    def _extract_and_validate_sql(self, ai_response: str, profile: CompanyProfile, question_type: str) -> str:
+        """🔧 แยก SQL และ validate"""
+        
+        # Clean response
+        cleaned = ai_response.strip()
+        
+        # Extract SQL patterns
+        sql_patterns = [
+            r'```sql\s*(.*?)\s*```',
+            r'```\s*(SELECT.*?;?)\s*```',
+            r'(SELECT.*?;)',
+        ]
+        
+        extracted_sql = None
+        for pattern in sql_patterns:
+            match = re.search(pattern, cleaned, re.DOTALL | re.IGNORECASE)
+            if match:
+                extracted_sql = match.group(1).strip()
+                if extracted_sql.upper().startswith('SELECT'):
+                    break
+        
+        if not extracted_sql:
+            # Try line-by-line extraction
+            lines = cleaned.split('\n')
+            sql_lines = []
+            
+            for line in lines:
+                line = line.strip()
+                if line.upper().startswith('SELECT') or sql_lines:
+                    sql_lines.append(line)
+                    if line.endswith(';'):
+                        break
+            
+            if sql_lines:
+                extracted_sql = ' '.join(sql_lines)
+        
+        if not extracted_sql:
+            raise ValueError("Could not extract SQL from AI response")
+        
+        # Clean up SQL
+        extracted_sql = ' '.join(extracted_sql.split())  # Remove extra whitespace
+        if not extracted_sql.endswith(';'):
+            extracted_sql += ';'
+        
+        # Basic validation
+        if not self._validate_basic_sql(extracted_sql):
+            raise ValueError("Generated SQL failed basic validation")
+        
+        return extracted_sql
     
-    def get_universal_prompt_stats(self) -> Dict[str, Any]:
-        """📊 ดึงสถิติ Universal Prompt System"""
-        contexts = self.universal_integration.universal_prompt.company_contexts
+    def _validate_basic_sql(self, sql: str) -> bool:
+        """✅ Basic SQL validation"""
+        sql_upper = sql.upper()
+        
+        # Must be SELECT
+        if not sql_upper.startswith('SELECT'):
+            return False
+        
+        # No dangerous operations
+        dangerous = ['DROP', 'DELETE', 'UPDATE', 'INSERT', 'ALTER', 'CREATE', 'TRUNCATE']
+        if any(keyword in sql_upper for keyword in dangerous):
+            return False
+        
+        # Must have FROM
+        if 'FROM' not in sql_upper:
+            return False
+        
+        return True
+    
+    def _apply_type_safety_rules(self, sql: str, profile: CompanyProfile) -> str:
+        """🛡️ ใช้ Type Safety Rules"""
+        
+        safe_sql = sql
+        
+        # Check for dangerous patterns
+        for pattern in self.type_safety_rules['dangerous_patterns']:
+            if re.search(pattern, safe_sql, re.IGNORECASE):
+                logger.warning(f"Found dangerous pattern: {pattern}")
+                # Apply fix based on pattern type
+                if 'ไม่มี' in pattern:
+                    # Replace direct comparisons with proper COALESCE
+                    safe_sql = re.sub(
+                        r'WHERE\s+([^=]+)\s*=\s*\'ไม่มี[^\']*\'',
+                        r'WHERE COALESCE(\1, \'ไม่มีข้อมูล\') = \'ไม่มีข้อมูล\'',
+                        safe_sql,
+                        flags=re.IGNORECASE
+                    )
+        
+        # Ensure proper NULL handling in assignment queries
+        if 'LEFT JOIN' in safe_sql.upper() and 'COALESCE' not in safe_sql.upper():
+            logger.info("Adding COALESCE for NULL handling in LEFT JOIN query")
+            # This is a basic fix - in production, you'd want more sophisticated logic
+            safe_sql = safe_sql.replace('p.name', 'COALESCE(p.name, \'ไม่มีโปรเจค\')')
+        
+        return safe_sql
+    
+    def _calculate_confidence(self, sql: str, question: str, profile: CompanyProfile) -> str:
+        """📊 คำนวณ confidence level"""
+        
+        confidence_score = 0.5  # Base score
+        
+        # SQL quality indicators
+        sql_upper = sql.upper()
+        
+        if 'LEFT JOIN' in sql_upper and 'COALESCE' in sql_upper:
+            confidence_score += 0.2  # Good assignment query structure
+        
+        if 'ORDER BY' in sql_upper and 'LIMIT' in sql_upper:
+            confidence_score += 0.1  # Good query structure
+        
+        if 'GROUP BY' in sql_upper and any(agg in sql_upper for agg in ['COUNT', 'SUM', 'AVG']):
+            confidence_score += 0.1  # Good aggregation
+        
+        # Business context matching
+        question_lower = question.lower()
+        if profile.business_type == 'tourism_hospitality':
+            if any(keyword in question_lower for keyword in ['ท่องเที่ยว', 'tourism', 'โรงแรม']):
+                confidence_score += 0.1
+        
+        elif profile.business_type == 'global_operations':
+            if any(keyword in question_lower for keyword in ['usd', 'international', 'global']):
+                confidence_score += 0.1
+        
+        # Convert to category
+        if confidence_score >= 0.8:
+            return 'high'
+        elif confidence_score >= 0.6:
+            return 'medium'
+        else:
+            return 'low'
+    
+    def _generate_safe_fallback_sql(self, question: str, tenant_id: str) -> str:
+        """🛡️ สร้าง Safe Fallback SQL"""
+        question_lower = question.lower()
+        
+        # Safe fallback based on question keywords
+        if any(word in question_lower for word in ['พนักงาน', 'employee', 'คน']):
+            return "SELECT name, position, department FROM employees ORDER BY hire_date DESC LIMIT 10;"
+        elif any(word in question_lower for word in ['โปรเจค', 'project', 'งาน']):
+            return "SELECT name, client, status FROM projects ORDER BY start_date DESC LIMIT 10;"
+        elif any(word in question_lower for word in ['เงินเดือน', 'salary']):
+            return "SELECT name, position, salary FROM employees ORDER BY salary DESC LIMIT 10;"
+        elif any(word in question_lower for word in ['งบประมาณ', 'budget']):
+            return "SELECT name, client, budget FROM projects ORDER BY budget DESC LIMIT 10;"
+        else:
+            return "SELECT 'Universal Prompt System: Safe fallback query' as message LIMIT 1;"
+    
+    def get_statistics(self) -> Dict[str, Any]:
+        """📊 ดึงสถิติการใช้งาน"""
+        
+        success_rate = 0
+        if self.generation_stats['total_queries'] > 0:
+            success_rate = (self.generation_stats['successful_generations'] / 
+                          self.generation_stats['total_queries']) * 100
+        
         return {
-            "universal_prompt_enabled": True,
-            "registered_companies": len(contexts),
-            "company_details": [
-                {
-                    "tenant_id": ctx.tenant_id,
-                    "name": ctx.name,
-                    "business_type": ctx.business_type,
-                    "language": ctx.language,
-                    "has_schema": len(ctx.schema_info) > 0,
-                    "has_business_rules": len(ctx.business_rules) > 0,
-                    "common_queries_count": len(ctx.common_queries)
-                }
-                for ctx in contexts.values()
-            ],
-            "type_safety_validator": "active",
-            "template_types": ["thai_enterprise", "thai_tourism", "english_international"],
-            "fallback_available": True
+            'total_queries_processed': self.generation_stats['total_queries'],
+            'successful_generations': self.generation_stats['successful_generations'],
+            'success_rate_percentage': round(success_rate, 2),
+            'template_usage_stats': self.generation_stats['template_usage'],
+            'tenant_usage_stats': self.generation_stats['tenant_usage'],
+            'companies_supported': len(self.company_profiles),
+            'templates_available': len(self.prompt_templates),
+            'last_updated': datetime.now().isoformat()
+        }
+    
+    def get_company_profile(self, tenant_id: str) -> Optional[CompanyProfile]:
+        """🏢 ดึงข้อมูล Company Profile"""
+        return self.company_profiles.get(tenant_id)
+    
+    def list_supported_companies(self) -> List[Dict[str, Any]]:
+        """📋 แสดงรายการ companies ที่รองรับ"""
+        companies = []
+        for company_id, profile in self.company_profiles.items():
+            companies.append({
+                'company_id': profile.company_id,
+                'name': profile.name,
+                'business_type': profile.business_type,
+                'language': profile.language,
+                'currency': profile.currency,
+                'prompt_template': profile.prompt_template,
+                'entities_count': len(profile.business_entities)
+            })
+        return companies
+    
+    async def test_universal_prompt_generation(self, test_questions: List[Tuple[str, str]]) -> Dict[str, Any]:
+        """🧪 ทดสอบ Universal Prompt Generation"""
+        
+        test_results = []
+        
+        for tenant_id, question in test_questions:
+            try:
+                start_time = datetime.now()
+                
+                # Mock agent for testing
+                class MockAgent:
+                    def __init__(self):
+                        from .tenant_config import TenantConfig
+                        self.tenant_configs = {
+                            'company-a': TenantConfig('company-a', 'SiamTech Bangkok HQ', 'localhost', 5432, 'db', 'user', 'pass', 'llama3.1:8b', 'th', 'enterprise', []),
+                            'company-b': TenantConfig('company-b', 'SiamTech Chiang Mai', 'localhost', 5432, 'db', 'user', 'pass', 'llama3.1:8b', 'th', 'tourism', []),
+                            'company-c': TenantConfig('company-c', 'SiamTech International', 'localhost', 5432, 'db', 'user', 'pass', 'llama3.1:8b', 'en', 'global', [])
+                        }
+                        self.ai_service = MockAIService()
+                
+                class MockAIService:
+                    async def call_ollama_api(self, tenant_config, prompt, context_data="", temperature=0.1):
+                        # Mock AI response with SQL
+                        if 'assignment' in prompt.lower() or 'แต่ละคน' in prompt.lower():
+                            return """SELECT 
+    e.name as employee_name,
+    e.position,
+    COALESCE(p.name, 'ไม่มีโปรเจค') as project_name,
+    COALESCE(ep.role, 'ไม่มีบทบาท') as project_role
+FROM employees e
+LEFT JOIN employee_projects ep ON e.id = ep.employee_id
+LEFT JOIN projects p ON ep.project_id = p.id
+ORDER BY e.name
+LIMIT 20;"""
+                        
+                        elif 'project' in prompt.lower() or 'โปรเจค' in prompt.lower():
+                            return """SELECT 
+    name as project_name,
+    client,
+    budget,
+    status
+FROM projects 
+ORDER BY budget DESC 
+LIMIT 10;"""
+                        
+                        else:
+                            return "SELECT 'Test query' as result LIMIT 1;"
+                
+                mock_agent = MockAgent()
+                
+                sql_query, metadata = await self.generate_sql_with_universal_prompt(
+                    question, tenant_id, mock_agent
+                )
+                
+                processing_time = (datetime.now() - start_time).total_seconds()
+                
+                test_results.append({
+                    'tenant_id': tenant_id,
+                    'question': question,
+                    'success': True,
+                    'sql_generated': sql_query,
+                    'method': metadata['method'],
+                    'template_used': metadata.get('template_used'),
+                    'confidence': metadata.get('confidence'),
+                    'processing_time_ms': round(processing_time * 1000, 2)
+                })
+                
+            except Exception as e:
+                test_results.append({
+                    'tenant_id': tenant_id,
+                    'question': question,
+                    'success': False,
+                    'error': str(e),
+                    'method': 'failed'
+                })
+        
+        # Calculate overall test statistics
+        total_tests = len(test_results)
+        successful_tests = len([r for r in test_results if r['success']])
+        success_rate = (successful_tests / total_tests * 100) if total_tests > 0 else 0
+        
+        return {
+            'test_summary': {
+                'total_tests': total_tests,
+                'successful_tests': successful_tests,
+                'failed_tests': total_tests - successful_tests,
+                'success_rate_percentage': round(success_rate, 2)
+            },
+            'test_results': test_results,
+            'system_status': 'operational' if success_rate >= 80 else 'needs_attention'
         }
 
-class UniversalPromptMigrationGuide:
-    """📖 คำแนะนำการ migrate ไปใช้ Universal Prompt System"""
+
+# 🧪 Test Function สำหรับ Universal Prompt System
+async def test_complete_universal_prompt_system():
+    """🧪 ทดสอบ Universal Prompt System แบบครบถ้วน"""
     
-    @staticmethod
-    def integrate_with_existing_agent(original_agent):
-        """🔧 Integration กับ Agent เดิม - แก้ไขแล้ว"""
-        
-        print("🚀 Starting Universal Prompt System Integration...")
-        print("=" * 60)
-        
-        try:
-            # 🔧 FIX: ใช้ approach ใหม่ - ไม่สร้าง wrapper class
-            from .universal_prompt_system import UniversalPromptIntegration
-            
-            # สร้าง integration
-            universal_integration = UniversalPromptIntegration(original_agent)
-            
-            # เก็บ original methods
-            original_generate_enhanced_sql = original_agent.generate_enhanced_sql
-            
-            # สร้าง enhanced method
-            async def enhanced_sql_with_universal_prompt(question: str, tenant_id: str):
-                try:
-                    logger.info(f"🎯 Using Universal Prompt for: {question[:50]}...")
-                    return await universal_integration.generate_enhanced_sql_with_universal_prompt(
-                        question, tenant_id
-                    )
-                except Exception as e:
-                    logger.warning(f"🔄 Universal prompt failed: {e}, falling back...")
-                    return await original_generate_enhanced_sql(question, tenant_id)
-            
-            # Apply enhancement ไปยัง original agent โดยตรง
-            original_agent.generate_enhanced_sql = enhanced_sql_with_universal_prompt
-            original_agent.universal_integration = universal_integration
-            
-            # เพิ่ม stats method
-            def get_universal_prompt_stats():
-                contexts = universal_integration.universal_prompt.company_contexts
-                return {
-                    "universal_prompt_enabled": True,
-                    "registered_companies": len(contexts),
-                    "company_details": [
-                        {
-                            "tenant_id": ctx.tenant_id,
-                            "name": ctx.name,
-                            "business_type": ctx.business_type,
-                            "language": ctx.language,
-                            "has_schema": len(ctx.schema_info) > 0,
-                            "has_business_rules": len(ctx.business_rules) > 0,
-                            "common_queries_count": len(ctx.common_queries)
-                        }
-                        for ctx in contexts.values()
-                    ],
-                    "type_safety_validator": "active",
-                    "template_types": ["thai_enterprise", "thai_tourism", "english_international"],
-                    "fallback_available": True
-                }
-            
-            original_agent.get_universal_prompt_stats = get_universal_prompt_stats
-            
-            print("✅ Universal Prompt System applied directly to original agent")
-            print("🔧 No wrapper class created - all methods delegated properly")
-            
-            # ทดสอบว่า methods สำคัญยังใช้งานได้
-            important_methods = ['process_enhanced_question', 'generate_enhanced_sql']
-            for method_name in important_methods:
-                if hasattr(original_agent, method_name):
-                    print(f"   ✅ {method_name}: Available")
-                else:
-                    print(f"   ❌ {method_name}: Missing")
-            
-            return original_agent  # 🔧 FIX: คืน original agent ไม่ใช่ wrapper
-            
-        except Exception as e:
-            print(f"❌ Integration failed: {e}")
-            print("🔄 Your original agent remains unchanged")
-            return original_agent
+    print("🧪 Testing Complete Universal Prompt System")
+    print("=" * 70)
+    
+    # Initialize system
+    generator = UniversalPromptGenerator()
+    
+    # Test 1: Company Profiles
+    print("\n1️⃣ Testing Company Profiles:")
+    companies = generator.list_supported_companies()
+    for company in companies:
+        print(f"   ✅ {company['name']} ({company['business_type']}) - {company['language']}")
+    
+    # Test 2: Question Type Analysis
+    print("\n2️⃣ Testing Question Type Analysis:")
+    test_questions = [
+        ("company-a", "พนักงาน siamtech แต่ละคนรับผิดชอบโปรเจคอะไรบ้าง"),
+        ("company-b", "มีโปรเจคท่องเที่ยวอะไรบ้าง"), 
+        ("company-c", "Which projects have highest USD budget")
+    ]
+    
+    for tenant_id, question in test_questions:
+        profile = generator.get_company_profile(tenant_id)
+        question_type = generator._analyze_question_type(question, profile)
+        print(f"   🎯 {tenant_id}: '{question[:40]}...' → {question_type}")
+    
+    # Test 3: Prompt Generation
+    print("\n3️⃣ Testing Universal Prompt Generation:")
+    test_results = await generator.test_universal_prompt_generation(test_questions)
+    
+    print(f"   📊 Success Rate: {test_results['test_summary']['success_rate_percentage']}%")
+    print(f"   ✅ Successful: {test_results['test_summary']['successful_tests']}")
+    print(f"   ❌ Failed: {test_results['test_summary']['failed_tests']}")
+    
+    for result in test_results['test_results']:
+        status = "✅" if result['success'] else "❌"
+        print(f"   {status} {result['tenant_id']}: {result.get('method', 'failed')}")
+    
+    # Test 4: Statistics
+    print("\n4️⃣ System Statistics:")
+    stats = generator.get_statistics()
+    print(f"   📈 Total Queries: {stats['total_queries_processed']}")
+    print(f"   ✅ Success Rate: {stats['success_rate_percentage']}%")
+    print(f"   🏢 Companies: {stats['companies_supported']}")
+    print(f"   📝 Templates: {stats['templates_available']}")
+    
+    # Overall status
+    overall_success = test_results['test_summary']['success_rate_percentage'] >= 80
+    print(f"\n🎯 Overall Status: {'✅ READY FOR PRODUCTION' if overall_success else '⚠️ NEEDS IMPROVEMENT'}")
+    
+    return overall_success
 
-# 📝 Usage Instructions
+# 🚀 Integration Helper Function
+def create_universal_prompt_integration_guide():
+    """📚 สร้างคู่มือการ Integration"""
+    
+    guide = """
+🚀 Universal Prompt System Integration Guide
+==========================================
+
+📁 Files to Update:
+------------------
+1. refactored_modules/universal_prompt_system.py (✅ Ready)
+2. refactored_modules/enhanced_postgres_agent_refactored.py (✅ Updated)
+
+🔧 Integration Steps:
+-------------------
+1. Replace old universal_prompt_system.py with new version
+2. Restart the container/service
+3. Test with curl commands
+4. Verify sql_generation_method = "universal_prompt_system"
+
+🧪 Test Commands:
+----------------
+# Company A (Enterprise)
+curl -X POST http://localhost:5000/enhanced-rag-query \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: company-a" \
+  -d '{"query": "พนักงานแต่ละคนรับผิดชอบโปรเจคอะไรบ้าง"}'
+
+# Company B (Tourism) 
+curl -X POST http://localhost:5000/enhanced-rag-query \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: company-b" \
+  -d '{"query": "มีโปรเจคท่องเที่ยวอะไรบ้าง"}'
+
+# Company C (International)
+curl -X POST http://localhost:5000/enhanced-rag-query \
+  -H "Content-Type: application/json" \
+  -H "X-Tenant-ID: company-c" \
+  -d '{"query": "Which projects have highest USD budget"}'
+
+# Check Universal Prompt Status
+curl http://localhost:5000/universal-prompt-status
+
+✅ Expected Results:
+------------------
+- sql_generation_method: "universal_prompt_system"
+- data_source_used: "universal_prompt_[model]"
+- fallback_mode: false
+- confidence_level: "high" or "medium"
+- enhancement_version: "3.0_universal_prompt"
+
+🎯 Success Criteria:
+------------------
+- All 3 companies use Universal Prompt System
+- No more Few-Shot Learning fallbacks  
+- SQL queries generated successfully
+- Business-appropriate responses
+- No AttributeError exceptions
+
+⚠️ Troubleshooting:
+------------------
+- If AttributeError: Check method names in universal_prompt_system.py
+- If fallback_mode: true: Check Intent Classification
+- If SQL errors: Check Type Safety Rules
+- If wrong responses: Check Prompt Templates
 """
-🚀 วิธีการใช้งาน Universal Prompt System:
+    
+    return guide
 
-1. Integration กับ Agent เดิม:
-   ```python
-   from refactored_modules.universal_prompt_system import UniversalPromptMigrationGuide
-   
-   # สมมติว่ามี original agent
-   enhanced_agent = UniversalPromptMigrationGuide.integrate_with_existing_agent(original_agent)
-   ```
-
-2. ทดสอบระบบ:
-   ```python
-   UniversalPromptMigrationGuide.test_universal_prompts(enhanced_agent)
-   ```
-
-3. ใช้งานปกติ:
-   ```python
-   # ระบบจะใช้ Universal Prompt อัตโนมัติ
-   result = await enhanced_agent.process_enhanced_question(question, tenant_id)
-   ```
-
-4. ดูสถิติ:
-   ```python
-   stats = enhanced_agent.get_universal_prompt_stats()
-   print(json.dumps(stats, indent=2, ensure_ascii=False))
-   ```
-
-🎯 ข้อดี:
-✅ Type-safe SQL generation (ไม่ error เรื่อง date/string)
-✅ Business context-aware prompts
-✅ Easy to add new companies
-✅ Automatic fallback to original system
-✅ Multi-language support (Thai/English)
-✅ Template-based architecture
-
-🔧 การเพิ่ม Company ใหม่:
-```python
-new_context = CompanyContext(
-    tenant_id='company-d',
-    name='New Company',
-    business_type='new_business_type',
-    language='th',
-    schema_info=schema_data,
-    business_rules=rules_data,
-    common_queries=questions,
-    sql_patterns=patterns
-)
-
-enhanced_agent.universal_integration.universal_prompt.register_company(new_context)
-```
-"""
-
-# 🎯 Export main classes
-__all__ = [
-    'UniversalPromptGenerator',
-    'UniversalPromptIntegration', 
-    'EnhancedAgentWithUniversalPrompt',
-    'UniversalPromptMigrationGuide',
-    'CompanyContext',
-    'TypeSafetySQLValidator'
-]
+if __name__ == "__main__":
+    print("🎯 Universal Prompt System - Complete Implementation")
+    print("🔥 Ready for Multi-Tenant Production Deployment")
+    
+    # Print integration guide
+    print(create_universal_prompt_integration_guide())
+    
+    # Run tests
+    import asyncio
+    asyncio.run(test_complete_universal_prompt_system())

@@ -114,97 +114,336 @@ Generate only the PostgreSQL query that provides comprehensive business insights
     def create_enhanced_interpretation_prompt(self, question: str, sql_query: str, 
                                             results: List[Dict], tenant_config: TenantConfig,
                                             schema_info: Dict) -> str:
-        """🔥 FIXED: Create enhanced interpretation prompt with data awareness"""
+        """🧠 Smart interpretation prompt ที่ประมวลผลข้อมูลก่อนส่งให้ AI"""
         
-        # วิเคราะห์ข้อมูลก่อนส่งให้ AI
-        data_analysis = self._analyze_results_structure(results, sql_query, question)
+        # 🔍 วิเคราะห์ประเภทคำถามและข้อมูล
+        question_context = self._analyze_question_context(question, sql_query, results)
         
-        # Format results with business context awareness
-        formatted_results = self._format_results_with_data_awareness(results, data_analysis, tenant_config.tenant_id)
+        # 📊 ประมวลผลข้อมูลให้เป็น structured format
+        processed_data = self._process_results_intelligently(results, question_context)
         
-        # Generate insights and patterns
-        insights = self._generate_enhanced_data_insights(results, data_analysis, tenant_config.tenant_id)
+        # 🎯 สร้าง context-aware prompt แบบ dynamic
+        return self._create_dynamic_interpretation_prompt(
+            question, processed_data, question_context, tenant_config, schema_info
+        )
+
+    def _analyze_question_context(self, question: str, sql_query: str, results: List[Dict]) -> Dict[str, Any]:
+        """🔍 วิเคราะห์ context ของคำถามและผลลัพธ์"""
         
-        if tenant_config.language == 'en':
-            prompt = f"""You are a senior business analyst for {tenant_config.name} interpreting database results.
-
-COMPANY CONTEXT:
-- Business Type: {tenant_config.business_type}
-- Focus Area: {schema_info.get('business_context', {}).get('primary_focus', 'Business operations')}
-- Key Metrics: {', '.join(tenant_config.key_metrics)}
-
-USER QUESTION: {question}
-SQL EXECUTED: {sql_query}
-RESULTS SUMMARY: {len(results)} records found
-
-🔍 CRITICAL DATA INTERPRETATION RULES:
-{self._create_data_interpretation_rules_en(data_analysis)}
-
-{formatted_results}
-
-ENHANCED DATA INSIGHTS:
-{insights}
-
-RESPONSE GUIDELINES:
-1. Start with direct answer addressing the specific question
-2. Provide key business insights from the data
-3. Highlight important trends, patterns, or anomalies
-4. Add relevant business context and implications
-5. Use professional yet accessible language
-6. Include quantitative details with proper formatting
-7. Suggest actionable next steps if appropriate
-8. Keep response focused and valuable for business decision-making
-
-FORMATTING STANDARDS:
-- Use bullet points for multiple insights
-- Bold important numbers and key findings
-- Group related information logically
-- Include percentage calculations where meaningful
-- Provide context for numbers (comparisons, benchmarks)
-
-Generate comprehensive business analysis response:"""
+        question_lower = question.lower()
+        sql_upper = sql_query.upper()
         
-        else:  # Thai
-            prompt = f"""คุณคือนักวิเคราะห์ธุรกิจอาวุโสสำหรับ {tenant_config.name} ที่ตีความผลลัพธ์จากฐานข้อมูล
-
-บริบทบริษัท:
-- ประเภทธุรกิจ: {tenant_config.business_type}
-- จุดเน้น: {schema_info.get('business_context', {}).get('primary_focus', 'การดำเนินธุรกิจ')}
-- ตัวชี้วัดหลัก: {', '.join(tenant_config.key_metrics)}
-
-คำถามผู้ใช้: {question}
-SQL ที่ใช้: {sql_query}
-สรุปผลลัพธ์: พบข้อมูล {len(results)} รายการ
-
-🔍 กฎสำคัญในการตีความข้อมูล:
-{self._create_data_interpretation_rules_th(data_analysis)}
-
-{formatted_results}
-
-ข้อมูลเชิงลึกขั้นสูง:
-{insights}
-
-แนวทางการตอบ:
-1. เริ่มด้วยคำตอบที่ตรงประเด็นสำหรับคำถามที่ถาม
-2. ให้ข้อมูลเชิงลึกทางธุรกิจที่สำคัญจากข้อมูล
-3. เน้นแนวโน้ม รูปแบบ หรือความผิดปกติที่สำคัญ
-4. เพิ่มบริบทธุรกิจที่เกี่ยวข้องและผลกระทบ
-5. ใช้ภาษาที่เป็นมืออาชีพแต่เข้าใจง่าย
-6. รวมรายละเอียดเชิงปริมาณด้วยการจัดรูปแบบที่เหมาะสม
-7. แนะนำขั้นตอนต่อไปที่สามารถปฏิบัติได้หากเหมาะสม
-8. รักษาการตอบให้มุ่งเน้นและมีคุณค่าสำหรับการตัดสินใจทางธุรกิจ
-
-มาตรฐานการจัดรูปแบบ:
-- ใช้ bullet points สำหรับข้อมูลเชิงลึกหลายๆ ข้อ
-- ทำตัวหนาสำหรับตัวเลขสำคัญและการค้นพบหลัก
-- จัดกลุ่มข้อมูลที่เกี่ยวข้องอย่างมีเหตุผล
-- รวมการคำนวณเปอร์เซ็นต์ที่มีความหมาย
-- ให้บริบทสำหรับตัวเลข (การเปรียบเทียบ มาตรฐาน)
-
-สร้างการวิเคราะห์ธุรกิจที่ครอบคลุม:"""
+        context = {
+            'query_type': 'general',
+            'data_structure': 'simple',
+            'response_style': 'analytical',
+            'focus_area': 'summary'
+        }
         
-        return prompt
-    
+        # 🎯 ตรวจจับ assignment queries
+        if ('แต่ละคน' in question_lower or 'each' in question_lower) and 'LEFT JOIN' in sql_upper:
+            context.update({
+                'query_type': 'assignment',
+                'data_structure': 'relational', 
+                'response_style': 'listing',
+                'focus_area': 'individual_items'
+            })
+        
+        # 🎯 ตรวจจับ project queries
+        elif 'โปรเจค' in question_lower or 'project' in question_lower:
+            context.update({
+                'query_type': 'project',
+                'response_style': 'listing',
+                'focus_area': 'items_with_details'
+            })
+        
+        # 🎯 ตรวจจับ counting/aggregation queries
+        elif any(word in question_lower for word in ['กี่', 'จำนวน', 'how many', 'count']):
+            context.update({
+                'query_type': 'counting',
+                'response_style': 'statistical',
+                'focus_area': 'numbers_and_trends'
+            })
+        
+        # 🎯 ตรวจจับ financial queries
+        elif any(word in question_lower for word in ['งบประมาณ', 'เงินเดือน', 'budget', 'salary']):
+            context.update({
+                'query_type': 'financial',
+                'response_style': 'analytical',
+                'focus_area': 'numbers_with_context'
+            })
+        
+        return context
+
+    def _process_results_intelligently(self, results: List[Dict], context: Dict[str, Any]) -> Dict[str, Any]:
+        """📊 ประมวลผลข้อมูลอย่างชาญฉลาดตาม context"""
+        
+        if not results:
+            return {'type': 'empty', 'message': 'ไม่มีข้อมูล'}
+        
+        processed = {
+            'raw_count': len(results),
+            'summary': {},
+            'highlights': [],
+            'formatted_display': ''
+        }
+        
+        # 🎯 Assignment query processing
+        if context['query_type'] == 'assignment':
+            return self._process_assignment_data(results)
+        
+        # 🎯 Project query processing
+        elif context['query_type'] == 'project':
+            return self._process_project_data(results)
+        
+        # 🎯 Financial query processing
+        elif context['query_type'] == 'financial':
+            return self._process_financial_data(results)
+        
+        # 🎯 Counting query processing
+        elif context['query_type'] == 'counting':
+            return self._process_counting_data(results)
+        
+        # 🎯 General processing
+        else:
+            return self._process_general_data(results)
+
+    def _process_assignment_data(self, results: List[Dict]) -> Dict[str, Any]:
+        """👥 ประมวลผลข้อมูล assignment แบบ smart"""
+        
+        employees_with_projects = []
+        employees_without_projects = []
+        
+        # Group by employee
+        employee_data = {}
+        for row in results:
+            emp_name = row.get('name', 'Unknown')
+            project = row.get('project_name', '')
+            role = row.get('role', '')
+            
+            if emp_name not in employee_data:
+                employee_data[emp_name] = {
+                    'name': emp_name,
+                    'projects': [],
+                    'position': row.get('position', ''),
+                    'department': row.get('department', '')
+                }
+            
+            # Handle project assignment
+            if project and 'ไม่มี' not in str(project):
+                role_display = role if role and 'ไม่มี' not in str(role) else 'ไม่ระบุบทบาท'
+                employee_data[emp_name]['projects'].append({
+                    'name': project,
+                    'role': role_display
+                })
+        
+        # Categorize employees
+        for emp_name, emp_info in employee_data.items():
+            if emp_info['projects']:
+                for project in emp_info['projects']:
+                    employees_with_projects.append({
+                        'employee': emp_name,
+                        'project': project['name'],
+                        'role': project['role']
+                    })
+            else:
+                employees_without_projects.append({
+                    'employee': emp_name,
+                    'position': emp_info['position'],
+                    'department': emp_info['department']
+                })
+        
+        # Create structured display
+        display_lines = []
+        
+        if employees_with_projects:
+            display_lines.append("พนักงานที่มีโปรเจค:")
+            for item in employees_with_projects[:10]:  # Limit display
+                display_lines.append(f"• {item['employee']} → {item['project']} ({item['role']})")
+        
+        if employees_without_projects:
+            display_lines.append("\nพนักงานที่ยังไม่มีโปรเจค:")
+            for item in employees_without_projects[:5]:  # Limit display
+                display_lines.append(f"• {item['employee']} ({item['position']} - {item['department']})")
+        
+        return {
+            'type': 'assignment',
+            'employees_with_projects': len(employees_with_projects),
+            'employees_without_projects': len(employees_without_projects),
+            'total_employees': len(employee_data),
+            'display_data': employees_with_projects + employees_without_projects,
+            'formatted_display': '\n'.join(display_lines),
+            'summary': {
+                'with_projects': len(employees_with_projects),
+                'without_projects': len(employees_without_projects),
+                'utilization_rate': round(len(employees_with_projects) / len(employee_data) * 100, 1) if employee_data else 0
+            }
+        }
+
+    def _process_project_data(self, results: List[Dict]) -> Dict[str, Any]:
+        """🚀 ประมวลผลข้อมูล project แบบ smart"""
+        
+        projects = []
+        total_budget = 0
+        
+        for row in results:
+            project_info = {
+                'name': row.get('name', 'Unknown'),
+                'client': row.get('client', 'Unknown'),
+                'budget': row.get('budget', 0),
+                'status': row.get('status', 'Unknown')
+            }
+            projects.append(project_info)
+            
+            if isinstance(project_info['budget'], (int, float)):
+                total_budget += project_info['budget']
+        
+        # Sort by budget (descending)
+        projects.sort(key=lambda x: x['budget'] if isinstance(x['budget'], (int, float)) else 0, reverse=True)
+        
+        # Create display
+        display_lines = []
+        active_projects = [p for p in projects if p['status'] == 'active']
+        completed_projects = [p for p in projects if p['status'] == 'completed']
+        
+        if active_projects:
+            display_lines.append("โปรเจคที่กำลังดำเนินการ:")
+            for proj in active_projects[:5]:
+                budget_display = f"{proj['budget']:,.0f} บาท" if isinstance(proj['budget'], (int, float)) else "ไม่ระบุ"
+                display_lines.append(f"• {proj['name']} - {proj['client']} ({budget_display})")
+        
+        if completed_projects:
+            display_lines.append("\nโปรเจคที่เสร็จแล้ว:")
+            for proj in completed_projects[:3]:
+                budget_display = f"{proj['budget']:,.0f} บาท" if isinstance(proj['budget'], (int, float)) else "ไม่ระบุ"
+                display_lines.append(f"• {proj['name']} - {proj['client']} ({budget_display})")
+        
+        return {
+            'type': 'project',
+            'total_projects': len(projects),
+            'active_projects': len(active_projects),
+            'completed_projects': len(completed_projects),
+            'total_budget': total_budget,
+            'avg_budget': total_budget / len(projects) if projects else 0,
+            'display_data': projects,
+            'formatted_display': '\n'.join(display_lines),
+            'highlights': [
+                f"โปรเจคทั้งหมด: {len(projects)} โปรเจค",
+                f"งบประมาณรวม: {total_budget:,.0f} บาท",
+                f"งบประมาณเฉลี่ย: {total_budget / len(projects):,.0f} บาท" if projects else "ไม่มีข้อมูลงบประมาณ"
+            ]
+        }
+
+    def _process_financial_data(self, results: List[Dict]) -> Dict[str, Any]:
+        """💰 ประมวลผลข้อมูลทางการเงิน"""
+        
+        amounts = []
+        for row in results:
+            for key, value in row.items():
+                if key in ['salary', 'budget', 'amount', 'price'] and isinstance(value, (int, float)):
+                    amounts.append(value)
+        
+        if not amounts:
+            return {'type': 'financial', 'message': 'ไม่พบข้อมูลทางการเงิน'}
+        
+        return {
+            'type': 'financial',
+            'total_amount': sum(amounts),
+            'avg_amount': sum(amounts) / len(amounts),
+            'max_amount': max(amounts),
+            'min_amount': min(amounts),
+            'count': len(amounts),
+            'formatted_display': f"ยอดรวม: {sum(amounts):,.0f} บาท, เฉลี่ย: {sum(amounts)/len(amounts):,.0f} บาท, สูงสุด: {max(amounts):,.0f} บาท"
+        }
+
+    def _process_counting_data(self, results: List[Dict]) -> Dict[str, Any]:
+        """🔢 ประมวลผลข้อมูลการนับ"""
+        
+        return {
+            'type': 'counting',
+            'total_count': len(results),
+            'formatted_display': f"จำนวนทั้งหมด: {len(results)} รายการ"
+        }
+
+    def _process_general_data(self, results: List[Dict]) -> Dict[str, Any]:
+        """📊 ประมวลผลข้อมูลทั่วไป"""
+        
+        return {
+            'type': 'general',
+            'total_records': len(results),
+            'sample_data': results[:5],
+            'formatted_display': f"พบข้อมูล {len(results)} รายการ"
+        }
+
+    def _create_dynamic_interpretation_prompt(self, question: str, processed_data: Dict[str, Any], 
+                                            context: Dict[str, Any], tenant_config: TenantConfig,
+                                            schema_info: Dict) -> str:
+        """🎯 สร้าง dynamic prompt ตาม context และข้อมูลที่ประมวลผลแล้ว"""
+        
+        if tenant_config.language == 'th':
+            base_prompt = f"""คุณเป็นผู้ช่วยที่ตอบคำถามตรงประเด็นสำหรับ {tenant_config.name}
+
+    🎯 คำถาม: {question}
+    📊 ประเภทข้อมูล: {processed_data.get('type', 'ทั่วไป')}
+    📈 จำนวนข้อมูล: {processed_data.get('raw_count', 0)} รายการ
+
+    """
+        else:
+            base_prompt = f"""You are a direct answer assistant for {tenant_config.name}
+
+    🎯 Question: {question}
+    📊 Data Type: {processed_data.get('type', 'general')}
+    📈 Record Count: {processed_data.get('raw_count', 0)} records
+
+    """
+        
+        # 🎯 เพิ่ม context-specific guidance
+        if context['response_style'] == 'listing':
+            if tenant_config.language == 'th':
+                base_prompt += """⚠️ สำคัญ: ตอบแบบแสดงรายการ
+    • แสดงรายชื่อและรายละเอียดที่เป็นประโยชน์
+    • จัดกลุ่มข้อมูลอย่างเป็นระเบียบ
+    • หลีกเลี่ยงการวิเคราะห์สถิติยาวๆ
+
+    """
+            else:
+                base_prompt += """⚠️ Important: List-style response
+    • Show names and useful details
+    • Organize data systematically  
+    • Avoid lengthy statistical analysis
+
+    """
+        
+        elif context['response_style'] == 'statistical':
+            if tenant_config.language == 'th':
+                base_prompt += """⚠️ สำคัญ: ตอบแบบวิเคราะห์สถิติ
+    • เน้นตัวเลขและเปอร์เซ็นต์
+    • แสดงแนวโน้มและการเปรียบเทียบ
+    • ให้ insights ทางธุรกิจ
+
+    """
+        
+        # 🎯 เพิ่มข้อมูลที่ประมวลผลแล้ว
+        base_prompt += f"""📋 ข้อมูลที่ประมวลผลแล้ว:
+    {processed_data.get('formatted_display', 'ไม่มีข้อมูลเฉพาะ')}
+
+    """
+        
+        # 🎯 เพิ่ม summary หาก context เหมาะสม
+        if 'summary' in processed_data:
+            summary = processed_data['summary']
+            if tenant_config.language == 'th':
+                base_prompt += f"""💡 สรุปสำคัญ: {summary}
+
+    """
+        
+        if tenant_config.language == 'th':
+            base_prompt += """กรุณาตอบคำถามโดยใช้ข้อมูลที่ประมวลผลแล้วข้างต้น เน้นความชัดเจนและตรงประเด็น:"""
+        else:
+            base_prompt += """Please answer the question using the processed data above, focusing on clarity and directness:"""
+        
+        return base_prompt
+
     def _create_data_interpretation_rules_en(self, data_analysis: Dict) -> str:
         """สร้างกฎการตีความข้อมูลภาษาอังกฤษ"""
         rules = []
@@ -482,91 +721,7 @@ SQL ที่ใช้: {sql_query}
         
         return '\n'.join(rules)
     
-    def create_enhanced_interpretation_prompt(self, question: str, sql_query: str, 
-                                            results: List[Dict], tenant_config: TenantConfig,
-                                            schema_info: Dict) -> str:
-        """Create enhanced interpretation prompt with business intelligence"""
-        
-        # Format results with business context
-        formatted_results = self._format_results_with_context(results, tenant_config.tenant_id)
-        
-        # Generate insights and patterns
-        insights = self._generate_data_insights(results, tenant_config.tenant_id)
-        
-        if tenant_config.language == 'en':
-            prompt = f"""You are a senior business analyst for {tenant_config.name} interpreting database results.
-
-COMPANY CONTEXT:
-- Business Type: {tenant_config.business_type}
-- Focus Area: {schema_info.get('business_context', {}).get('primary_focus', 'Business operations')}
-- Key Metrics: {', '.join(tenant_config.key_metrics)}
-
-USER QUESTION: {question}
-SQL EXECUTED: {sql_query}
-RESULTS SUMMARY: {len(results)} records found
-
-{formatted_results}
-
-DATA INSIGHTS:
-{insights}
-
-RESPONSE GUIDELINES:
-1. Start with direct answer addressing the specific question
-2. Provide key business insights from the data
-3. Highlight important trends, patterns, or anomalies
-4. Add relevant business context and implications
-5. Use professional yet accessible language
-6. Include quantitative details with proper formatting
-7. Suggest actionable next steps if appropriate
-8. Keep response focused and valuable for business decision-making
-
-FORMATTING STANDARDS:
-- Use bullet points for multiple insights
-- Bold important numbers and key findings
-- Group related information logically
-- Include percentage calculations where meaningful
-- Provide context for numbers (comparisons, benchmarks)
-
-Generate comprehensive business analysis response:"""
-        
-        else:  # Thai
-            prompt = f"""คุณคือนักวิเคราะห์ธุรกิจอาวุโสสำหรับ {tenant_config.name} ที่ตีความผลลัพธ์จากฐานข้อมูล
-
-บริบทบริษัท:
-- ประเภทธุรกิจ: {tenant_config.business_type}
-- จุดเน้น: {schema_info.get('business_context', {}).get('primary_focus', 'การดำเนินธุรกิจ')}
-- ตัวชี้วัดหลัก: {', '.join(tenant_config.key_metrics)}
-
-คำถามผู้ใช้: {question}
-SQL ที่ใช้: {sql_query}
-สรุปผลลัพธ์: พบข้อมูล {len(results)} รายการ
-
-{formatted_results}
-
-ข้อมูลเชิงลึก:
-{insights}
-
-แนวทางการตอบ:
-1. เริ่มด้วยคำตอบที่ตรงประเด็นสำหรับคำถามที่ถาม
-2. ให้ข้อมูลเชิงลึกทางธุรกิจที่สำคัญจากข้อมูล
-3. เน้นแนวโน้ม รูปแบบ หรือความผิดปกติที่สำคัญ
-4. เพิ่มบริบทธุรกิจที่เกี่ยวข้องและผลกระทบ
-5. ใช้ภาษาที่เป็นมืออาชีพแต่เข้าใจง่าย
-6. รวมรายละเอียดเชิงปริมาณด้วยการจัดรูปแบบที่เหมาะสม
-7. แนะนำขั้นตอนต่อไปที่สามารถปฏิบัติได้หากเหมาะสม
-8. รักษาการตอบให้มุ่งเน้นและมีคุณค่าสำหรับการตัดสินใจทางธุรกิจ
-
-มาตรฐานการจัดรูปแบบ:
-- ใช้ bullet points สำหรับข้อมูลเชิงลึกหลายๆ ข้อ
-- ทำตัวหนาสำหรับตัวเลขสำคัญและการค้นพบหลัก
-- จัดกลุ่มข้อมูลที่เกี่ยวข้องอย่างมีเหตุผล
-- รวมการคำนวณเปอร์เซ็นต์ที่มีความหมาย
-- ให้บริบทสำหรับตัวเลข (การเปรียบเทียบ มาตรฐาน)
-
-สร้างการวิเคราะห์ธุรกิจที่ครอบคลุม:"""
-        
-        return prompt
-    
+ 
     def _format_enhanced_schema(self, schema_info: Dict, language: str) -> str:
         """Format enhanced schema information with business context"""
         if language == 'en':
