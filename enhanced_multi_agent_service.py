@@ -1,70 +1,22 @@
 import os
-import time
 import asyncio
-from datetime import datetime
-from typing import Dict, Any, Optional
 import uvicorn
+import time
+import json
 from fastapi import FastAPI, HTTPException, Header, Depends
 from fastapi.middleware.cors import CORSMiddleware
-from pydantic import BaseModel
-import logging
-from refactored_modules.intent_classifier import IntentClassifier
 from fastapi.responses import StreamingResponse
-import asyncio
-from typing import AsyncGenerator
-import json
-# Import the enhanced PostgreSQL + Ollama agent
-from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
-# Configure logging
-logging.basicConfig(level=logging.INFO)
-logger = logging.getLogger(__name__)
+from typing import Optional, Dict, Any, List
+from datetime import datetime
+import logging
 
-# =============================================================================
-# REQUEST/RESPONSE MODELS
-# =============================================================================
-
-class EnhancedRAGQuery(BaseModel):
-    query: str
-    tenant_id: Optional[str] = None
-    agent_type: Optional[str] = "enhanced_sql"  # "enhanced_sql", "ai_only", "pattern_match"
-    max_tokens: Optional[int] = 2000
-    temperature: Optional[float] = 0.7
-    include_insights: Optional[bool] = True
-    response_format: Optional[str] = "business_analysis"  # "simple", "business_analysis", "technical"
-
-class EnhancedRAGResponse(BaseModel):
-    answer: str
-    success: bool
-    tenant_id: str
-    tenant_name: str
-    model_used: Optional[str] = None
-    data_source_used: Optional[str] = None
-    agent_type: Optional[str] = None
-    response_time_ms: int
-    
-    # Enhanced metadata
-    sql_query: Optional[str] = None
-    db_results_count: Optional[int] = None
-    sql_generation_method: Optional[str] = None  # "pattern_matching", "ai_generation", "fallback"
-    confidence_level: Optional[str] = None  # "high", "medium", "low"
-    business_insights_count: Optional[int] = None
-    processing_time_seconds: Optional[float] = None
-    
-    # Quality metrics
-    prompt_version: Optional[str] = "2.0"
-    enhancement_features: Optional[list] = None
-    fallback_mode: Optional[bool] = None
-
-# =============================================================================
-# ENHANCED TENANT CONFIGURATION
-# =============================================================================
-
+# Import existing configs (ใช้ ENHANCED_TENANT_CONFIGS เดิม)
 ENHANCED_TENANT_CONFIGS = {
     'company-a': {
-        'name': 'SiamTech Bangkok HQ',
+        'name': 'SiamTech Main Office',
         'model': 'llama3.1:8b',
         'language': 'th',
-        'business_type': 'enterprise_software',
+        'business_type': 'enterprise',
         'description': 'สำนักงานใหญ่ กรุงเทพมฯ - Enterprise solutions, Banking, E-commerce',
         'specialization': 'Large-scale enterprise systems',
         'key_strengths': ['enterprise_architecture', 'banking_systems', 'high_performance']
@@ -89,14 +41,11 @@ ENHANCED_TENANT_CONFIGS = {
     }
 }
 
-# =============================================================================
-# FASTAPI APP SETUP
-# =============================================================================
-
+# FastAPI App Setup
 app = FastAPI(
-    title="SiamTech Enhanced Multi-Tenant RAG Service v2.0",
-    description="Advanced RAG service with enhanced prompts, business intelligence, and smart SQL generation",
-    version="2.0.0"
+    title="SiamTech Modular Multi-Tenant RAG Service",
+    description="Enhanced RAG with modular company-specific prompts",
+    version="4.0.0"
 )
 
 app.add_middleware(
@@ -107,24 +56,47 @@ app.add_middleware(
     allow_headers=["*"],
 )
 
+# Initialize Enhanced Agent with Modular Support
 try:
-    from refactored_modules.universal_prompt_system import UniversalPromptMigrationGuide
-    original_agent = EnhancedPostgresOllamaAgent()
-    enhanced_agent = UniversalPromptMigrationGuide.integrate_with_existing_agent(original_agent)
-    print("✅ Universal Prompt System loaded successfully")
+    from integration_bridge import ModularEnhancedAgent
+    enhanced_agent = ModularEnhancedAgent(ENHANCED_TENANT_CONFIGS)
+    print("✅ Modular Enhanced Agent loaded successfully")
+    print(f"🎯 Modular support: {enhanced_agent.modular_available}")
+    if enhanced_agent.modular_available:
+        print("🏢 Company A: Modular prompts active")
+        print("🔄 Company B,C: Original enhanced agent (fallback)")
+    else:
+        print("⚠️ Modular prompts not available, using original enhanced agent for all companies")
 except ImportError as e:
-    print(f"⚠️ Universal Prompt System not found: {e}")
-    enhanced_agent = EnhancedPostgresOllamaAgent()
-    print("🔄 Using original system")
+    print(f"⚠️ Modular system not found: {e}")
+    print("🔄 Falling back to original enhanced agent...")
+    
+    # Fallback ไปใช้ original
+    try:
+        from refactored_modules.universal_prompt_system import UniversalPromptMigrationGuide
+        from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
+        
+        original_agent = EnhancedPostgresOllamaAgent()
+        enhanced_agent = UniversalPromptMigrationGuide.integrate_with_existing_agent(original_agent)
+        print("✅ Original Universal Prompt System loaded")
+    except Exception as fallback_error:
+        print(f"❌ Universal Prompt System also failed: {fallback_error}")
+        enhanced_agent = EnhancedPostgresOllamaAgent()
+        print("🔄 Using basic enhanced agent")
+
 except Exception as e:
-    print(f"❌ Universal Prompt System failed: {e}")
-    enhanced_agent = EnhancedPostgresOllamaAgent()
-    print("🔄 Using original system")
+    print(f"❌ Modular Enhanced Agent failed: {e}")
+    print("🔄 Falling back to original enhanced agent...")
+    
+    try:
+        from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
+        enhanced_agent = EnhancedPostgresOllamaAgent()
+        print("✅ Original enhanced agent loaded")
+    except Exception as fallback_error:
+        print(f"❌ All systems failed: {fallback_error}")
+        raise fallback_error
 
-# =============================================================================
-# DEPENDENCIES
-# =============================================================================
-
+# Dependencies
 def get_tenant_id(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID")) -> str:
     """Extract and validate tenant ID"""
     tenant_id = x_tenant_id or "company-a"
@@ -132,650 +104,161 @@ def get_tenant_id(x_tenant_id: Optional[str] = Header(None, alias="X-Tenant-ID")
         raise HTTPException(400, f"Invalid tenant: {tenant_id}")
     return tenant_id
 
-def validate_tenant_id(tenant_id: str) -> bool:
-    """Validate if tenant ID exists"""
-    return tenant_id in ENHANCED_TENANT_CONFIGS
-
-# =============================================================================
-# ENHANCED CORE ENDPOINTS
-# =============================================================================
-@app.get("/universal-prompt-status")
-async def universal_prompt_status():
-    """ตรวจสอบสถานะ Universal Prompt System"""
-    try:
-        stats = enhanced_agent.get_universal_prompt_stats()
-        return {
-            "status": "active",
-            "system": "Universal Prompt System v1.0",
-            "stats": stats,
-            "features": [
-                "Context-aware prompts per company",
-                "Type-safe SQL generation",
-                "Multi-language support (Thai/English)", 
-                "Business-specific templates",
-                "Automatic fallback system"
-            ]
-        }
-    except Exception as e:
-        return {
-            "status": "error",
-            "error": str(e),
-            "fallback": "Using original system"
-        }
+# Main Endpoints
+@app.post("/enhanced-rag-query")
+async def enhanced_rag_query(
+    request: Dict[str, Any],
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """🎯 Main query endpoint with modular prompt support"""
     
+    question = request.get('query') or request.get('question')
+    if not question:
+        raise HTTPException(400, "No query provided")
+    
+    try:
+        result = await enhanced_agent.process_enhanced_question(question, tenant_id)
+        return result
+    except Exception as e:
+        raise HTTPException(500, f"Enhanced query processing failed: {str(e)}")
+
 @app.get("/health")
 async def enhanced_health_check():
-    """Enhanced health check endpoint with Universal Prompt System status"""
+    """Enhanced health check endpoint with Modular System status"""
     
-    # เพิ่มข้อมูลใหม่
-    universal_prompt_status = "active"
+    # ตรวจสอบ modular system
+    modular_available = hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available
+    modular_companies = 0
+    modular_statistics = {}
+    
     try:
-        stats = enhanced_agent.get_universal_prompt_stats()
-        universal_prompt_companies = stats['registered_companies']
+        if hasattr(enhanced_agent, 'get_modular_statistics'):
+            modular_statistics = enhanced_agent.get_modular_statistics()
+            modular_companies = len(modular_statistics.get('companies_supported', []))
+    except Exception as e:
+        pass
+    
+    # ตรวจสอบ original enhanced agent capabilities
+    original_features = []
+    try:
+        if hasattr(enhanced_agent, 'universal_integration'):
+            original_features.append("universal_prompt_system")
+        if hasattr(enhanced_agent, 'schema_service'):
+            original_features.append("schema_discovery")
+        if hasattr(enhanced_agent, 'business_mapper'):
+            original_features.append("business_logic_mapping")
     except:
-        universal_prompt_status = "error"
-        universal_prompt_companies = 0
+        pass
     
     return {
         "status": "healthy",
-        "service": "SiamTech Enhanced Multi-Tenant RAG v3.0",  # อัปเดตเวอร์ชัน
-        "version": "3.0.0",
+        "service": "SiamTech Modular Multi-Tenant RAG",
+        "version": "4.0.0",
+        "architecture": "hybrid_modular_enhanced",
+        
+        "modular_system": {
+            "available": modular_available,
+            "companies_supported": modular_companies,
+            "statistics": modular_statistics,
+            "status": "active" if modular_available else "fallback_only"
+        },
+        
         "enhancement_features": [
-            "universal_context_aware_prompts",  # ⭐ ใหม่
-            "type_safe_sql_generation",        # ⭐ ใหม่
-            "multi_language_template_system",  # ⭐ ใหม่
-            "business_context_injection",      # ⭐ ใหม่
+            "company_specific_prompts",      # 🆕 ใหม่
+            "modular_architecture",          # 🆕 ใหม่  
+            "hybrid_system_support",         # 🆕 ใหม่
+            "gradual_migration_support",     # 🆕 ใหม่
+            "automatic_fallback_mechanism",  # 🆕 ใหม่
+        ] + original_features + [
             "smart_sql_generation_with_patterns",
-            "business_intelligence_insights", 
+            "business_intelligence_insights",
             "enhanced_prompt_engineering",
             "advanced_error_handling",
             "performance_tracking",
-            "confidence_scoring",
-            "structured_business_analysis"
+            "confidence_scoring"
         ],
-        "universal_prompt_system": {
-            "status": universal_prompt_status,
-            "registered_companies": universal_prompt_companies,
-            "type_safety_validator": "active",
-            "template_types": ["thai_enterprise", "thai_tourism", "english_international"]
+        
+        "companies": {
+            "company-a": {
+                "name": ENHANCED_TENANT_CONFIGS['company-a']['name'],
+                "system": "modular_prompts" if modular_available else "original_enhanced",
+                "prompt_type": "EnterprisePrompt" if modular_available else "universal_prompt"
+            },
+            "company-b": {
+                "name": ENHANCED_TENANT_CONFIGS['company-b']['name'],
+                "system": "original_enhanced",
+                "prompt_type": "universal_prompt"
+            },
+            "company-c": {
+                "name": ENHANCED_TENANT_CONFIGS['company-c']['name'],
+                "system": "original_enhanced", 
+                "prompt_type": "universal_prompt"
+            }
         },
-        "capabilities": [
-            "pattern_matching_sql_generation",
-            "business_context_awareness", 
-            "multi_tenant_isolation",
-            "schema_aware_queries",
-            "automatic_insights_generation",
-            "progressive_fallback_strategies",
-            "context_aware_universal_prompts",  # ⭐ ใหม่
-            "type_safe_sql_validation"          # ⭐ ใหม่
-        ],
+        
         "tenants": list(ENHANCED_TENANT_CONFIGS.keys()),
         "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434'),
-        "agent_type": "EnhancedPostgresOllamaAgent_with_UniversalPrompts",  # อัปเดต
-        "prompt_version": "3.0_universal",  # อัปเดต
+        "agent_type": "ModularEnhancedAgent" if modular_available else "EnhancedPostgresOllamaAgent",
+        "prompt_version": "4.0_modular_hybrid",
         "timestamp": datetime.now().isoformat()
     }
 
 
-@app.get("/tenants/enhanced")
-async def list_enhanced_tenants():
-    """List all tenants with enhanced capabilities information"""
-    return {
-        "tenants": [
-            {
-                "tenant_id": tid,
-                "name": config["name"],
-                "model": config["model"],
-                "language": config["language"],
-                "business_type": config["business_type"],
-                "description": config["description"],
-                "specialization": config["specialization"],
-                "key_strengths": config["key_strengths"],
-                "enhanced_capabilities": [
-                    "smart_sql_with_business_logic",
-                    "pattern_recognition_queries", 
-                    "automated_business_insights",
-                    "context_aware_responses",
-                    "domain_specific_optimization"
-                ],
-                "prompt_enhancements": [
-                    "business_context_integration",
-                    "schema_awareness_v2",
-                    "error_recovery_strategies",
-                    "structured_response_formatting"
-                ]
-            }
-            for tid, config in ENHANCED_TENANT_CONFIGS.items()
-        ],
-        "global_enhancements": {
-            "sql_generation": "AI + Pattern Matching + Business Logic",
-            "response_quality": "Structured business analysis with insights",
-            "error_handling": "Progressive fallback with context retention",
-            "performance": "Sub-3 second response with confidence scoring"
-        }
-    }
-
-@app.post("/enhanced-rag-query", response_model=EnhancedRAGResponse)
-async def enhanced_rag_query(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Enhanced RAG endpoint with proper confidence handling"""
-    start_time = time.time()
+@app.get("/modular-status")
+async def modular_system_status():
+    """📊 ตรวจสอบสถานะ modular system"""
     
-    if request.tenant_id and validate_tenant_id(request.tenant_id):
-        tenant_id = request.tenant_id
-    
-    try:
-        logger.info(f"Processing query for {tenant_id}: {request.query[:100]}...")
-        
-        result = await enhanced_agent.process_enhanced_question(
-            question=request.query,
-            tenant_id=tenant_id
-        )
-        
-        response_time = int((time.time() - start_time) * 1000)
-        tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
-        
-        # 🔧 แปลง confidence เป็น string อย่างปลอดภัย
-        def normalize_confidence(conf_value):
-            if conf_value is None:
-                return "medium"
-            if isinstance(conf_value, str):
-                return conf_value if conf_value in ["high", "medium", "low", "none"] else "medium"
-            if isinstance(conf_value, (int, float)):
-                if conf_value >= 0.8:
-                    return "high"
-                elif conf_value >= 0.6:
-                    return "medium"
-                elif conf_value > 0:
-                    return "low"
-                else:
-                    return "none"
-            return "medium"
-        
-        # 🔧 แปลง enhancement_features เป็น list อย่างปลอดภัย
-        def normalize_features(features):
-            if features is None:
-                return [
-                    "smart_sql_generation",
-                    "business_intelligence", 
-                    "pattern_matching",
-                    "advanced_prompts"
-                ]
-            if isinstance(features, str):
-                return [features]
-            if isinstance(features, list):
-                return features
-            return []
-        
-        confidence_raw = result.get("confidence", "medium")
-        
-        return EnhancedRAGResponse(
-            answer=result["answer"],
-            success=result.get("success", True),
-            tenant_id=tenant_id,
-            tenant_name=tenant_config["name"],
-            model_used=result.get("model_used", tenant_config["model"]),
-            data_source_used=result.get("data_source_used"),
-            agent_type="enhanced_sql_v2",
-            response_time_ms=response_time,
-            sql_query=result.get("sql_query"),
-            db_results_count=result.get("db_results_count"),
-            sql_generation_method=result.get("sql_generation_method", "ai_generation"),
-            confidence_level=normalize_confidence(confidence_raw),  # 🔧 แปลงเป็น string
-            confidence_score=confidence_raw if isinstance(confidence_raw, (int, float)) else None,  # 🔧 เก็บ float แยก
-            business_insights_count=result.get("business_insights_count"),
-            processing_time_seconds=result.get("processing_time_seconds"),
-            prompt_version="2.0",
-            enhancement_features=normalize_features(result.get("enhancement_features")),  # 🔧 แปลงเป็น list
-            fallback_mode=result.get("fallback_mode", False)
-        )
-        
-    except Exception as e:
-        logger.error(f"Error in enhanced_rag_query for {tenant_id}: {e}")
-        response_time = int((time.time() - start_time) * 1000)
-        
-        return EnhancedRAGResponse(
-            answer=f"เกิดข้อผิดพลาดในระบบ Enhanced v2.0: {str(e)}",
-            success=False,
-            tenant_id=tenant_id,
-            tenant_name=ENHANCED_TENANT_CONFIGS[tenant_id]["name"],
-            agent_type="error_handler",
-            response_time_ms=response_time,
-            confidence_level="none",  # 🔧 ใช้ string
-            confidence_score=None,
-            prompt_version="2.0",
-            enhancement_features=[]  # 🔧 ใช้ empty list
-        )
-
-@app.post("/smart-sql-generation", response_model=Dict[str, Any])
-async def smart_sql_generation(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Enhanced SQL generation endpoint with pattern matching and validation"""
-    start_time = time.time()
-    
-    if request.tenant_id and validate_tenant_id(request.tenant_id):
-        tenant_id = request.tenant_id
-    
-    try:
-        logger.info(f"Generating smart SQL for {tenant_id}: {request.query[:100]}...")
-        
-        # Enhanced SQL generation with metadata
-        sql_query, sql_metadata = await enhanced_agent.generate_enhanced_sql(
-            question=request.query,
-            tenant_id=tenant_id
-        )
-        
-        processing_time = time.time() - start_time
-        tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
+    if hasattr(enhanced_agent, 'get_modular_statistics'):
+        stats = enhanced_agent.get_modular_statistics()
         
         return {
-            "tenant_id": tenant_id,
-            "tenant_name": tenant_config["name"],
-            "question": request.query,
-            "generated_sql": sql_query,
-            "generation_method": sql_metadata["method"],
-            "confidence": sql_metadata["confidence"],
-            "processing_time_seconds": processing_time,
-            "enhancements_applied": [
-                "business_logic_mapping",
-                "pattern_recognition",
-                "sql_validation",
-                "safety_checks"
+            "status": "active" if stats['modular_system_available'] else "fallback_only",
+            "modular_system": stats,
+            "features": [
+                "Company-specific prompt isolation",
+                "Gradual migration support", 
+                "Automatic fallback mechanism",
+                "Statistics tracking"
             ],
-            "metadata": sql_metadata,
-            "timestamp": datetime.now().isoformat()
+            "architecture": "hybrid_modular_enhanced"
         }
-        
-    except Exception as e:
-        logger.error(f"Error in smart_sql_generation for {tenant_id}: {e}")
-        raise HTTPException(500, f"Smart SQL generation failed: {str(e)}")
-
-@app.post("/business-intelligence-analysis")
-async def business_intelligence_analysis(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Advanced business intelligence analysis endpoint"""
-    if request.tenant_id and validate_tenant_id(request.tenant_id):
-        tenant_id = request.tenant_id
-    
-    try:
-        # Process question with enhanced business intelligence
-        result = await enhanced_agent.process_enhanced_question(
-            question=request.query,
-            tenant_id=tenant_id
-        )
-        
-        tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
-        
-        # Extract business insights
-        insights = []
-        if result.get('answer'):
-            lines = result['answer'].split('\n')
-            for line in lines:
-                if line.strip().startswith('-') or line.strip().startswith('•'):
-                    insights.append(line.strip())
-        
+    else:
         return {
-            "tenant_id": tenant_id,
-            "business_type": tenant_config["business_type"],
-            "analysis_question": request.query,
-            "primary_answer": result.get("answer", "").split('\n')[0],
-            "business_insights": insights,
-            "data_points_analyzed": result.get("db_results_count", 0),
-            "confidence_assessment": result.get("confidence", "medium"),
-            "recommendations": [
-                "Consider drilling down into specific departments",
-                "Analyze trends over time periods",
-                "Compare with industry benchmarks"
-            ],
-            "next_suggested_questions": [
-                "What are the trends over the last 6 months?",
-                "How does this compare to industry standards?",
-                "Which factors drive these results?"
-            ],
-            "analysis_metadata": {
-                "processing_method": result.get("sql_generation_method"),
-                "data_source": result.get("data_source_used"),
-                "enhancement_version": "2.0"
-            }
+            "status": "not_available",
+            "message": "Modular system not loaded",
+            "fallback": "Using original enhanced agent",
+            "architecture": "original_enhanced_only"
         }
-        
-    except Exception as e:
-        logger.error(f"Error in business intelligence analysis for {tenant_id}: {e}")
-        raise HTTPException(500, f"Business intelligence analysis failed: {str(e)}")
 
-# =============================================================================
-# BACKWARD COMPATIBILITY ENDPOINTS
-# =============================================================================
-
-@app.post("/rag-query", response_model=EnhancedRAGResponse)
-async def legacy_rag_query(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Legacy RAG endpoint with enhanced backend (backward compatibility)"""
-    return await enhanced_rag_query(request, tenant_id)
-
-@app.post("/smart-sql-query", response_model=EnhancedRAGResponse)
-async def legacy_smart_sql_query(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """Legacy smart SQL endpoint with enhanced backend"""
-    return await enhanced_rag_query(request, tenant_id)
-
-# =============================================================================
-# ENHANCED OPENAI COMPATIBILITY
-# =============================================================================
-
-@app.post("/enhanced-rag-query-stream")
-async def enhanced_rag_query_stream(
-    request: EnhancedRAGQuery,
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """🔥 NEW: Streaming RAG endpoint with real-time response"""
     
-    if request.tenant_id and validate_tenant_id(request.tenant_id):
-        tenant_id = request.tenant_id
-
-    async def generate_streaming_response():
-        try:
-            config = ENHANCED_TENANT_CONFIGS[tenant_id]
-            
-            # 📊 Send initial metadata
-            metadata = {
-                "type": "metadata",
-                "tenant_id": tenant_id,
-                "tenant_name": config["name"],
-                "model": config["model"],
-                "status": "started"
-            }
-            yield f"data: {json.dumps(metadata)}\n\n"
-
-            # 🔥 Process question with streaming
-            async for chunk in enhanced_agent.process_enhanced_question_streaming(
-                request.query, tenant_id
-            ):
-                yield f"data: {json.dumps(chunk)}\n\n"
-                
-                # Small delay for smooth streaming
-                await asyncio.sleep(0.01)
-
-        except Exception as e:
-            error_data = {
-                "type": "error",
-                "message": f"เกิดข้อผิดพลาด: {str(e)}"
-            }
-            yield f"data: {json.dumps(error_data)}\n\n"
-
-    return StreamingResponse(
-        generate_streaming_response(),
-        media_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "Connection": "keep-alive",
-            "Access-Control-Allow-Origin": "*",
-            "Access-Control-Allow-Headers": "*"
-        }
-    )
-
-@app.post("/v1/chat/completions")
-async def enhanced_openai_chat_completions(
-    request: Dict[str, Any],
-    tenant_id: str = Depends(get_tenant_id)
-):
-    """🔥 UPDATED: OpenAI-compatible endpoint with streaming support"""
-    try:
-        messages = request.get("messages", [])
-        stream = request.get("stream", False)  # 🔥 Check stream parameter
-        
-        if not messages:
-            raise HTTPException(400, "No messages provided")
-        
-        user_message = messages[-1].get("content", "")
-        
-        # 🚀 If streaming requested
-        if stream:
-            async def generate_openai_streaming():
-                try:
-                    config = ENHANCED_TENANT_CONFIGS[tenant_id]
-                    
-                    # Send initial chunk
-                    initial_chunk = {
-                        "id": f"chatcmpl-{int(time.time())}",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": f"siamtech-enhanced-{config['model']}",
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"role": "assistant", "content": ""},
-                            "finish_reason": None
-                        }]
-                    }
-                    yield f"data: {json.dumps(initial_chunk)}\n\n"
-                    
-                    # 🔥 Stream the actual response
-                    async for chunk in enhanced_agent.process_enhanced_question_streaming(
-                        user_message, tenant_id
-                    ):
-                        if chunk.get("type") == "answer_chunk":
-                            openai_chunk = {
-                                "id": f"chatcmpl-{int(time.time())}",
-                                "object": "chat.completion.chunk",
-                                "created": int(time.time()),
-                                "model": f"siamtech-enhanced-{config['model']}",
-                                "choices": [{
-                                    "index": 0,
-                                    "delta": {"content": chunk["content"]},
-                                    "finish_reason": None
-                                }]
-                            }
-                            yield f"data: {json.dumps(openai_chunk)}\n\n"
-                    
-                    # Final chunk
-                    final_chunk = {
-                        "id": f"chatcmpl-{int(time.time())}",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": f"siamtech-enhanced-{config['model']}",
-                        "choices": [{
-                            "index": 0,
-                            "delta": {},
-                            "finish_reason": "stop"
-                        }]
-                    }
-                    yield f"data: {json.dumps(final_chunk)}\n\n"
-                    yield "data: [DONE]\n\n"
-                    
-                except Exception as e:
-                    error_chunk = {
-                        "id": f"chatcmpl-{int(time.time())}",
-                        "object": "chat.completion.chunk",
-                        "created": int(time.time()),
-                        "model": f"siamtech-enhanced-{config['model']}",
-                        "choices": [{
-                            "index": 0,
-                            "delta": {"content": f"\n\n❌ เกิดข้อผิดพลาด: {str(e)}"},
-                            "finish_reason": "stop"
-                        }]
-                    }
-                    yield f"data: {json.dumps(error_chunk)}\n\n"
-                    yield "data: [DONE]\n\n"
-            
-            return StreamingResponse(
-                generate_openai_streaming(),
-                media_type="text/event-stream",
-                headers={
-                    "Cache-Control": "no-cache",
-                    "Connection": "keep-alive"
-                }
-            )
-        
-        # 🔄 Non-streaming (existing behavior)
-        else:
-            result = await enhanced_agent.process_enhanced_question(
-                question=user_message,
-                tenant_id=tenant_id
-            )
-            
-            config = ENHANCED_TENANT_CONFIGS[tenant_id]
-            
-            return {
-                "id": f"chatcmpl-{int(time.time())}",
-                "object": "chat.completion",
-                "created": int(time.time()),
-                "model": f"siamtech-enhanced-{config['model']}",
-                "choices": [{
-                    "index": 0,
-                    "message": {
-                        "role": "assistant", 
-                        "content": result["answer"]
-                    },
-                    "finish_reason": "stop"
-                }],
-                "usage": {
-                    "prompt_tokens": len(user_message.split()),
-                    "completion_tokens": len(result["answer"].split()),
-                    "total_tokens": len(user_message.split()) + len(result["answer"].split())
-                }
-            }
-            
-    except Exception as e:
-        raise HTTPException(500, f"Enhanced chat completions failed: {str(e)}")
-# =============================================================================
-# MONITORING & ANALYTICS ENDPOINTS
-# =============================================================================
-
-@app.get("/tenants/{tenant_id}/enhanced-status")
-async def enhanced_tenant_status(tenant_id: str):
-    """Get enhanced status for specific tenant with performance metrics"""
-    if not validate_tenant_id(tenant_id):
-        raise HTTPException(404, f"Tenant {tenant_id} not found")
-    
-    try:
-        # Test enhanced capabilities
-        test_question = "Test system capabilities"
-        start_time = time.time()
-        
-        # Test SQL generation
-        sql_query, sql_metadata = await enhanced_agent.generate_enhanced_sql(
-            test_question, tenant_id
-        )
-        
-        sql_generation_time = time.time() - start_time
-        
-        # Test database connection
-        try:
-            db_connection = enhanced_agent.get_database_connection(tenant_id)
-            db_status = "connected"
-            db_connection.close()
-        except Exception as e:
-            db_status = f"error: {str(e)}"
-        
-        # Test AI connection
-        try:
-            ai_start = time.time()
-            ai_response = await enhanced_agent.call_ollama_api(
-                tenant_id=tenant_id,
-                prompt="System test",
-                context_data="",
-                temperature=0.1
-            )
-            ai_response_time = time.time() - ai_start
-            ai_status = "connected" if ai_response and "error" not in ai_response.lower() else "degraded"
-        except Exception as e:
-            ai_status = f"error: {str(e)}"
-            ai_response_time = 0
-        
-        tenant_config = ENHANCED_TENANT_CONFIGS[tenant_id]
-        
-        return {
-            "tenant_id": tenant_id,
-            "tenant_name": tenant_config["name"],
-            "business_type": tenant_config["business_type"],
-            "model": tenant_config["model"],
-            "language": tenant_config["language"],
-            "specialization": tenant_config["specialization"],
-            "key_strengths": tenant_config["key_strengths"],
-            
-            "system_status": {
-                "database_status": db_status,
-                "ai_status": ai_status,
-                "overall_health": "healthy" if db_status == "connected" and ai_status == "connected" else "degraded"
-            },
-            
-            "performance_metrics": {
-                "sql_generation_time_ms": round(sql_generation_time * 1000, 2),
-                "ai_response_time_ms": round(ai_response_time * 1000, 2),
-                "expected_query_time_ms": "< 3000",
-                "sql_generation_method": sql_metadata.get("method", "unknown"),
-                "confidence_capability": sql_metadata.get("confidence", "unknown")
-            },
-            
-            "enhanced_capabilities": {
-                "smart_sql_generation": True,
-                "pattern_matching": True,
-                "business_intelligence": True,
-                "advanced_prompts": True,
-                "error_recovery": True,
-                "confidence_scoring": True
-            },
-            
-            "feature_status": {
-                "business_logic_mapping": "active",
-                "schema_awareness": "active", 
-                "insight_generation": "active",
-                "structured_responses": "active",
-                "progressive_fallback": "active"
-            },
-            
-            "configuration": {
-                "ollama_server": os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434'),
-                "prompt_version": "2.0",
-                "agent_version": "EnhancedPostgresOllamaAgent",
-                "enhancement_level": "production_ready"
-            },
-            
-            "timestamp": datetime.now().isoformat()
-        }
-        
-    except Exception as e:
-        logger.error(f"Error getting enhanced status for {tenant_id}: {e}")
-        raise HTTPException(500, f"Enhanced status check failed: {str(e)}")
-
-@app.post("/test-universal-prompts")
-async def test_universal_prompts_endpoint():
-    """ทดสอบ Universal Prompt System"""
-    
-    test_results = []
+@app.post("/test-modular-vs-original")
+async def test_modular_vs_original():
+    """🧪 ทดสอบเปรียบเทียบ modular vs original"""
     
     test_questions = [
-        ("company-a", "พนักงานแต่ละคนรับผิดชอบโปรเจคอะไรบ้าง"),
-        ("company-b", "มีโปรเจคท่องเที่ยวอะไรบ้าง"),
+        ("company-a", "พนักงานในแผนก IT มีใครบ้าง"),
+        ("company-b", "โปรเจคท่องเที่ยวมีอะไรบ้าง"),
         ("company-c", "Which international projects have highest revenue")
     ]
     
+    results = []
+    
     for tenant_id, question in test_questions:
         try:
-            # ทดสอบสร้าง prompt
-            prompt = enhanced_agent.universal_integration.universal_prompt.generate_sql_prompt(
-                question, tenant_id
-            )
+            start_time = time.time()
+            result = await enhanced_agent.process_enhanced_question(question, tenant_id)
+            processing_time = time.time() - start_time
             
-            # ทดสอบสร้าง SQL (ไม่รัน AI จริง)
             test_result = {
                 "tenant_id": tenant_id,
                 "question": question,
-                "status": "success",
-                "prompt_length": len(prompt),
-                "template_type": enhanced_agent.universal_integration._get_template_type(tenant_id),
-                "has_type_safety": "TYPE SAFETY RULES" in prompt,
-                "has_business_context": "บริบทธุรกิจ" in prompt or "Business Context" in prompt
+                "status": "success" if result.get('success') else "failed",
+                "system_used": result.get('system_type', 'unknown'),
+                "modular_used": result.get('modular_system_used', False),
+                "processing_time": round(processing_time, 3),
+                "response_length": len(result.get('answer', '')),
+                "architecture": result.get('architecture', 'unknown'),
+                "prompt_type": result.get('prompt_type', 'unknown')
             }
             
         except Exception as e:
@@ -786,126 +269,84 @@ async def test_universal_prompts_endpoint():
                 "error": str(e)
             }
         
-        test_results.append(test_result)
+        results.append(test_result)
+    
+    # Summary
+    successful = len([r for r in results if r['status'] == 'success'])
+    modular_used = len([r for r in results if r.get('modular_used')])
     
     return {
-        "test_status": "completed",
-        "total_tests": len(test_results),
-        "successful": len([r for r in test_results if r["status"] == "success"]),
-        "results": test_results
+        "test_summary": {
+            "total_tests": len(results),
+            "successful": successful,
+            "modular_system_used": modular_used,
+            "fallback_used": successful - modular_used,
+            "success_rate": f"{(successful/len(results)*100):.1f}%",
+            "modular_rate": f"{(modular_used/len(results)*100):.1f}%"
+        },
+        "detailed_results": results,
+        "recommendation": "✅ Ready for production" if successful >= 2 else "⚠️ Needs attention",
+        "system_info": {
+            "modular_available": hasattr(enhanced_agent, 'modular_available'),
+            "expected_modular_companies": ["company-a"],
+            "expected_fallback_companies": ["company-b", "company-c"]
+        }
     }
 
-@app.get("/system/enhancement-metrics")
-async def system_enhancement_metrics():
-    """Get system-wide enhancement metrics and performance data"""
-    return {
-        "enhancement_version": "2.0",
-        "total_enhancements": 7,
-        "enhancement_categories": {
-            "sql_generation": {
-                "improvements": [
-                    "Pattern matching for common queries",
-                    "Business logic integration", 
-                    "Advanced validation and safety checks",
-                    "Progressive fallback strategies"
-                ],
-                "impact": "85% improvement in SQL accuracy"
-            },
-            "prompt_engineering": {
-                "improvements": [
-                    "Business context integration",
-                    "Enhanced schema awareness",
-                    "Structured response formatting",
-                    "Domain-specific optimization"
-                ],
-                "impact": "70% improvement in response quality"
-            },
-            "business_intelligence": {
-                "improvements": [
-                    "Automatic insights generation",
-                    "Performance metrics tracking",
-                    "Confidence scoring",
-                    "Actionable recommendations"
-                ],
-                "impact": "90% more business value per query"
-            }
-        },
-        "performance_improvements": {
-            "response_consistency": "+75%",
-            "business_relevance": "+80%", 
-            "error_recovery": "+60%",
-            "user_satisfaction": "+70%"
-        },
-        "system_capabilities": {
-            "tenants_supported": len(ENHANCED_TENANT_CONFIGS),
-            "business_types_optimized": 3,
-            "sql_patterns_available": 5,
-            "fallback_strategies": 4,
-            "confidence_levels": 3
-        },
-        "next_enhancements": [
-            "Real-time learning from user feedback",
-            "Advanced visualization generation",
-            "Predictive analytics integration",
-            "Multi-language prompt optimization"
-        ]
-    }
+# Legacy endpoints compatibility
+@app.post("/enhanced-rag-query-streaming")
+async def enhanced_rag_query_streaming(
+    request: Dict[str, Any],
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """🔄 Streaming endpoint (ใช้ original agent)"""
+    
+    question = request.get('query') or request.get('question')
+    if not question:
+        raise HTTPException(400, "No query provided")
+    
+    async def generate_streaming_response():
+        try:
+            async for chunk in enhanced_agent.process_enhanced_question_streaming(question, tenant_id):
+                yield f"data: {json.dumps(chunk)}\n\n"
+                await asyncio.sleep(0.01)
+        except Exception as e:
+            error_data = {"type": "error", "message": f"เกิดข้อผิดพลาด: {str(e)}"}
+            yield f"data: {json.dumps(error_data)}\n\n"
 
-def apply_universal_prompt_system():
-    try:
-        from refactored_modules.universal_prompt_system import UniversalPromptIntegration
-        
-        # สร้าง integration
-        universal_integration = UniversalPromptIntegration(enhanced_agent)
-        
-        # เก็บ original method
-        original_generate_enhanced_sql = enhanced_agent.generate_enhanced_sql
-        
-        # สร้าง enhanced method
-        async def enhanced_sql_with_universal_prompt(question: str, tenant_id: str):
-            try:
-                logger.info(f"🎯 Using Universal Prompt for: {question[:50]}...")
-                return await universal_integration.generate_enhanced_sql_with_universal_prompt(
-                    question, tenant_id
-                )
-            except Exception as e:
-                logger.warning(f"🔄 Universal prompt failed: {e}, falling back...")
-                return await original_generate_enhanced_sql(question, tenant_id)
-        
-        # Apply the enhancement
-        enhanced_agent.generate_enhanced_sql = enhanced_sql_with_universal_prompt
-        enhanced_agent.universal_integration = universal_integration
-        
-        logger.info("✅ Universal Prompt System applied successfully")
-        return True
-        
-    except Exception as e:
-        logger.error(f"❌ Universal Prompt System failed to load: {e}")
-        logger.info("🔄 Continuing with original system...")
-        return False
-
-# Apply the system
-apply_universal_prompt_system()
-# =============================================================================
-# MAIN APPLICATION
-# =============================================================================
+    return StreamingResponse(
+        generate_streaming_response(),
+        media_type="text/event-stream",
+        headers={"Cache-Control": "no-cache", "Connection": "keep-alive"}
+    )
 
 if __name__ == "__main__":
-    print("🚀 SiamTech Enhanced Multi-Tenant RAG Service v2.0")
+    modular_status = "✅ Available" if hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available else "❌ Not Available"
+    
+    print("🚀 SiamTech Modular Multi-Tenant RAG Service v4.0")
     print("=" * 80)
+    print("🎯 Modular Features:")
+    print("   • Company-specific prompt isolation")
+    print("   • Hybrid modular + original system")
+    print("   • Gradual migration support")
+    print("   • Automatic fallback mechanism")
+    print(f"   • Modular System: {modular_status}")
+    print("")
     print("🧠 Enhanced Features:")
     print("   • Smart SQL Generation with Pattern Matching")
     print("   • Business Intelligence & Automated Insights")
-    print("   • Enhanced Prompt Engineering v2.0")
+    print("   • Enhanced Prompt Engineering")
     print("   • Advanced Error Recovery & Fallback")
-    print("   • Performance Tracking & Confidence Scoring")
-    print("   • Structured Business Analysis Responses")
     print("")
-    print(f"📊 Tenants: {list(ENHANCED_TENANT_CONFIGS.keys())}")
+    print(f"📊 Companies: {list(ENHANCED_TENANT_CONFIGS.keys())}")
+    
+    if hasattr(enhanced_agent, 'modular_available') and enhanced_agent.modular_available:
+        print("🎭 Company A: Modular prompts (EnterprisePrompt)")
+        print("🔄 Company B,C: Original enhanced agent (UniversalPrompt)")
+    else:
+        print("🔄 All Companies: Original enhanced agent (UniversalPrompt)")
+        
     print(f"🤖 Ollama Server: {os.getenv('OLLAMA_BASE_URL', 'http://52.74.36.160:12434')}")
-    print(f"🗄️  Database: Multi-tenant PostgreSQL with Enhanced Intelligence")
-    print(f"🎯 Agent: EnhancedPostgresOllamaAgent v2.0")
-    print(f"📈 Expected Improvements: 75%+ better response quality")
     print("=" * 80)
     
     uvicorn.run(

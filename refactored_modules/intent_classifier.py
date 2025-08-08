@@ -4,6 +4,21 @@ import logging
 
 logger = logging.getLogger(__name__)
 
+class IntentClassifier:
+    """🎯 Intent Classifier - Main interface class"""
+    
+    def __init__(self):
+        self.smart_classifier = SmartIntentClassifier()
+        logger.info("✅ IntentClassifier initialized")
+    
+    def classify_intent(self, question: str) -> Dict[str, Any]:
+        """Main method to classify user intent"""
+        return self.smart_classifier.classify_intent(question)
+    
+    def get_debug_analysis(self, question: str) -> Dict[str, Any]:
+        """Get detailed analysis for debugging"""
+        return self.smart_classifier.get_debug_analysis(question)
+
 class SmartIntentClassifier:
     """🧠 Smart Intent Classifier ที่เรียนรู้ patterns แบบ dynamic"""
     
@@ -37,250 +52,196 @@ class SmartIntentClassifier:
             ],
             'organizational': [
                 'แผนก', 'department', 'ฝ่าย', 'division', 'ตำแหน่ง', 'position',
-                'บทบาท', 'role', 'หน้าที่', 'function', 'ระดับ', 'level'
+                'บริษัท', 'company', 'องค์กร', 'organization'
             ],
-            'financial': [
-                'เงินเดือน', 'salary', 'ค่าจ้าง', 'wage', 'งบประมาณ', 'budget',
-                'ราคา', 'price', 'ค่าใช้จ่าย', 'cost', 'รายได้', 'income'
+            'technical_roles': [
+                'frontend', 'backend', 'fullstack', 'devops', 'senior', 'junior',
+                'lead', 'architect', 'designer', 'tester', 'analyst'
             ],
-            'technical_positions': [
-                'frontend', 'backend', 'fullstack', 'devops', 'qa', 'tester',
-                'designer', 'architect', 'lead', 'senior', 'junior',
-                'เฟรนท์เอนด์', 'แบ็กเอนด์', 'ดีไซน์เนอร์'
+            'data_metrics': [
+                'กี่คน', 'จำนวน', 'ราคา', 'เงินเดือน', 'งบประมาณ', 'budget',
+                'cost', 'salary', 'count', 'total', 'sum'
             ]
         }
     
     def _load_question_structures(self) -> Dict[str, List[str]]:
-        """❓ Question structure patterns (more flexible)"""
+        """❓ Question structure patterns"""
         return {
-            'who_what_questions': [
-                'ใคร', 'who', 'คนไหน', 'which person', 'ใครบ้าง', 'who are',
-                'ใครคือ', 'who is', 'ใครเป็น', 'who acts as'
-            ],
-            'what_where_questions': [
-                'อะไร', 'what', 'ไหน', 'which', 'อะไรบ้าง', 'what are',
-                'อย่างไร', 'how', 'เป็นอย่างไร', 'like what'
-            ],
-            'counting_questions': [
-                'กี่', 'how many', 'จำนวน', 'count', 'เท่าไหร่', 'how much',
-                'มากน้อย', 'amount', 'ปริมาณ', 'quantity'
-            ],
-            'listing_questions': [
-                'บ้าง', 'some', 'ทั้งหมด', 'all', 'รายการ', 'list',
-                'แต่ละ', 'each', 'ทุก', 'every'
-            ]
+            'who_questions': ['ใคร', 'who', 'คนไหน', 'ใครบ้าง'],
+            'what_questions': ['อะไร', 'what', 'สิ่งไหน', 'อะไรบ้าง'],
+            'how_many_questions': ['กี่', 'how many', 'จำนวน', 'มีกี่'],
+            'where_questions': ['ที่ไหน', 'where', 'ตรงไหน'],
+            'when_questions': ['เมื่อไร', 'when', 'เวลาไหน'],
+            'analysis_questions': ['วิเคราะห์', 'analyze', 'เปรียบเทียบ', 'compare']
         }
     
     def _load_context_indicators(self) -> Dict[str, List[str]]:
-        """🎯 Context indicators for business vs conversation"""
+        """🎯 Context indicators"""
         return {
-            'business_actions': [
-                'รับผิดชอบ', 'responsible', 'ทำงาน', 'work', 'จัดการ', 'manage',
-                'พัฒนา', 'develop', 'ออกแบบ', 'design', 'ทดสอบ', 'test',
-                'อยู่', 'is in', 'ประจำ', 'assigned to', 'สังกัด', 'belongs to'
+            'business_context': [
+                'รายงาน', 'report', 'สถิติ', 'statistics', 'ผลงาน', 'performance',
+                'กำไร', 'profit', 'ขาดทุน', 'loss', 'เปอร์เซ็นต์', 'percentage'
             ],
-            'business_contexts': [
-                'บริษัท', 'company', 'siamtech', 'สยามเทค', 'องค์กร', 'organization',
-                'ออฟฟิศ', 'office', 'สำนักงาน', 'workplace'
-            ],
-            'conversational_only': [
+            'conversational_context': [
                 'สวัสดี', 'hello', 'hi', 'ขอบคุณ', 'thank you', 'thanks',
-                'คุณคือใคร', 'who are you', 'ช่วยได้อะไร', 'what can you do'
+                'ลาก่อน', 'bye', 'goodbye', 'สบายดี', 'how are you'
+            ],
+            'system_context': [
+                'คุณคือใคร', 'who are you', 'ช่วยอะไร', 'what can you do',
+                'ระบบ', 'system', 'โปรแกรม', 'program'
             ]
         }
     
     def classify_intent(self, question: str) -> Dict[str, Any]:
-        """🧠 Smart intent classification with dynamic scoring"""
-        
-        if not question or len(question.strip()) == 0:
-            return self._create_response('conversation', 0.9, 'Empty question')
+        """🎯 Main classification method with dynamic scoring"""
         
         question_lower = question.strip().lower()
         
-        # 🚫 Quick check for pure conversational patterns
+        # 💬 Quick check for pure conversational
         if self._is_pure_conversational(question_lower):
-            return self._create_response('conversation', 0.95, 'Pure conversational pattern')
+            return {
+                'intent': 'conversational',
+                'should_use_sql': False,
+                'confidence': 0.95,
+                'reasoning': 'Pure conversational greeting/polite expression',
+                'classification_method': 'pattern_based_conversational'
+            }
         
-        # 🧠 Dynamic scoring
+        # 📊 Calculate dynamic scores
         scores = self._calculate_dynamic_scores(question_lower)
+        total_business_score = sum(scores.values())
         
-        # 🎯 Decision logic
-        business_score = sum(scores.values())
-        
-        if business_score >= 0.6:
-            confidence = min(0.95, 0.6 + (business_score - 0.6) * 0.7)
-            return self._create_response(
-                'business_query',
-                confidence,
-                f'Smart scoring: {scores}, total: {business_score:.2f}'
-            )
-        elif business_score >= 0.3:
-            confidence = min(0.8, 0.4 + (business_score - 0.3) * 0.8)
-            return self._create_response(
-                'business_query',
-                confidence,
-                f'Moderate business indicators: {scores}'
-            )
+        # 🎯 Smart decision making
+        if total_business_score >= 0.6:
+            intent = 'business_query'
+            should_use_sql = True
+            confidence = min(0.95, 0.6 + (total_business_score - 0.6) * 0.5)
+            reasoning = f"High business content (score: {total_business_score:.2f})"
+        elif total_business_score >= 0.3:
+            # 🤖 Mixed content - check context
+            mixed_analysis = self._analyze_mixed_content(question_lower)
+            if mixed_analysis['business_dominant']:
+                intent = 'business_query'
+                should_use_sql = True
+                confidence = 0.75
+                reasoning = f"Mixed content but business dominant (score: {total_business_score:.2f})"
+            else:
+                intent = 'conversational'
+                should_use_sql = False
+                confidence = 0.65
+                reasoning = f"Mixed content but conversational dominant (score: {total_business_score:.2f})"
         else:
-            return self._create_response(
-                'conversation',
-                0.7,
-                f'Low business score: {business_score:.2f}'
-            )
+            intent = 'conversational'
+            should_use_sql = False
+            confidence = 0.85
+            reasoning = f"Low business content (score: {total_business_score:.2f})"
+        
+        return {
+            'intent': intent,
+            'should_use_sql': should_use_sql,
+            'confidence': confidence,
+            'reasoning': reasoning,
+            'business_score': total_business_score,
+            'detailed_scores': scores,
+            'classification_method': 'dynamic_scoring'
+        }
     
-    def _is_pure_conversational(self, question: str) -> bool:
+    def _is_pure_conversational(self, question_lower: str) -> bool:
         """💬 Check for pure conversational patterns"""
-        pure_patterns = [
-            r'^(สวัสดี|สวัสดีครับ|สวัสดีค่ะ)$',
-            r'^(hello|hi|hey)$',
-            r'^(ขอบคุณ|ขอบคุณครับ|ขอบคุณค่ะ|thank you|thanks)$',
-            r'^(คุณคือใคร|who are you)$',
-            r'^(ช่วยได้อะไร|what can you do)$'
+        
+        pure_conversational_patterns = [
+            # Thai greetings
+            r'^สวัสดี(ครับ|ค่ะ|คะ)*$',
+            r'^สวัสดี\s+(ครับ|ค่ะ|คะ)$',
+            r'^ขอบคุณ(ครับ|ค่ะ|คะ|มาก)*$',
+            r'^ลาก่อน(ครับ|ค่ะ|คะ)*$',
+            
+            # English greetings
+            r'^hi+$', r'^hello+$', r'^hey+$',
+            r'^thank\s*you$', r'^thanks$', r'^bye$', r'^goodbye$',
+            
+            # System questions
+            r'^คุณคือใคร$', r'^who\s+are\s+you$',
+            r'^คุณช่วยอะไรได้บ้าง$', r'^what\s+can\s+you\s+do$'
         ]
         
-        for pattern in pure_patterns:
-            if re.match(pattern, question, re.IGNORECASE):
+        for pattern in pure_conversational_patterns:
+            if re.match(pattern, question_lower, re.IGNORECASE):
                 return True
         
         return False
     
-    def _calculate_dynamic_scores(self, question: str) -> Dict[str, float]:
-        """🧠 Calculate dynamic scores for different aspects"""
+    def _calculate_dynamic_scores(self, question_lower: str) -> Dict[str, float]:
+        """📊 Calculate dynamic scores for different aspects"""
         
         scores = {}
         
         # 1. Business Entity Score
-        scores['business_entities'] = self._score_business_entities(question)
+        business_entity_matches = 0
+        total_business_entities = 0
+        for category, entities in self.business_entities.items():
+            total_business_entities += len(entities)
+            for entity in entities:
+                if entity.lower() in question_lower:
+                    business_entity_matches += 1
+        
+        scores['business_entity_score'] = (business_entity_matches / max(total_business_entities, 1)) * self.scoring_weights['business_entity_score']
         
         # 2. Question Structure Score
-        scores['question_structure'] = self._score_question_structure(question)
+        question_structure_matches = 0
+        total_structures = 0
+        for category, structures in self.question_structures.items():
+            total_structures += len(structures)
+            for structure in structures:
+                if structure.lower() in question_lower:
+                    question_structure_matches += 1
+        
+        scores['question_structure_score'] = (question_structure_matches / max(total_structures, 1)) * self.scoring_weights['question_structure_score']
         
         # 3. Context Score
-        scores['context'] = self._score_context(question)
+        business_context_matches = 0
+        conversational_context_matches = 0
         
-        # 4. Technical Position Score (ใหม่! สำหรับจับ "frontend", "backend")
-        scores['technical_positions'] = self._score_technical_positions(question)
+        for indicator in self.context_indicators['business_context']:
+            if indicator.lower() in question_lower:
+                business_context_matches += 1
         
-        # 5. Business Action Score
-        scores['business_actions'] = self._score_business_actions(question)
+        for indicator in self.context_indicators['conversational_context']:
+            if indicator.lower() in question_lower:
+                conversational_context_matches += 1
+        
+        # Context score favors business context
+        context_score = max(0, business_context_matches - conversational_context_matches) * 0.1
+        scores['context_score'] = min(context_score, self.scoring_weights['context_score'])
+        
+        # 4. Verb Action Score
+        action_verbs = ['ดู', 'show', 'หา', 'find', 'ต้องการ', 'want', 'วิเคราะห์', 'analyze']
+        verb_action_matches = sum(1 for verb in action_verbs if verb.lower() in question_lower)
+        scores['verb_action_score'] = min(verb_action_matches * 0.05, self.scoring_weights['verb_action_score'])
         
         return scores
     
-    def _score_business_entities(self, question: str) -> float:
-        """🏢 Score based on business entities found"""
-        score = 0.0
-        entities_found = []
+    def _analyze_mixed_content(self, question_lower: str) -> Dict[str, Any]:
+        """🤖 Analyze mixed content to determine dominance"""
         
+        business_indicators = 0
+        conversational_indicators = 0
+        
+        # Count business vs conversational indicators
         for category, entities in self.business_entities.items():
             for entity in entities:
-                if entity.lower() in question:
-                    if category == 'people':
-                        score += 0.2  # People entities are strong indicators
-                    elif category == 'technical_positions':
-                        score += 0.25  # Technical positions are very strong
-                    elif category == 'work_items':
-                        score += 0.15
-                    elif category == 'organizational':
-                        score += 0.15
-                    elif category == 'financial':
-                        score += 0.1
-                    
-                    entities_found.append(f"{category}:{entity}")
+                if entity.lower() in question_lower:
+                    business_indicators += 1
         
-        # Bonus for multiple entity categories
-        unique_categories = len(set(e.split(':')[0] for e in entities_found))
-        if unique_categories >= 2:
-            score += 0.1
-        
-        return min(score, 1.0)
-    
-    def _score_question_structure(self, question: str) -> float:
-        """❓ Score based on question structure"""
-        score = 0.0
-        
-        for structure_type, patterns in self.question_structures.items():
-            for pattern in patterns:
-                if pattern.lower() in question:
-                    if structure_type == 'who_what_questions':
-                        score += 0.2  # Strong indicator for business queries
-                    elif structure_type == 'listing_questions':
-                        score += 0.15
-                    elif structure_type == 'counting_questions':
-                        score += 0.1
-                    elif structure_type == 'what_where_questions':
-                        score += 0.1
-        
-        return min(score, 1.0)
-    
-    def _score_context(self, question: str) -> float:
-        """🎯 Score based on context indicators"""
-        score = 0.0
-        
-        # Check for business context
-        for action in self.context_indicators['business_actions']:
-            if action.lower() in question:
-                score += 0.15
-        
-        for context in self.context_indicators['business_contexts']:
-            if context.lower() in question:
-                score += 0.1
-        
-        # Penalize conversational indicators
-        for conv in self.context_indicators['conversational_only']:
-            if conv.lower() in question:
-                score -= 0.2
-        
-        return max(0.0, min(score, 1.0))
-    
-    def _score_technical_positions(self, question: str) -> float:
-        """💻 Score technical position references (ใหม่!)"""
-        score = 0.0
-        
-        technical_terms = self.business_entities['technical_positions']
-        for term in technical_terms:
-            if term.lower() in question:
-                score += 0.3  # Technical positions are strong business indicators
-        
-        # Special handling for position-related questions
-        position_indicators = ['ตำแหน่ง', 'position', 'role', 'อยู่', 'is in']
-        for indicator in position_indicators:
-            if indicator.lower() in question:
-                score += 0.1
-        
-        return min(score, 1.0)
-    
-    def _score_business_actions(self, question: str) -> float:
-        """⚡ Score business action verbs"""
-        score = 0.0
-        
-        action_verbs = [
-            'ทำ', 'do', 'รับผิดชอบ', 'responsible', 'จัดการ', 'manage',
-            'พัฒนา', 'develop', 'ออกแบบ', 'design', 'ประจำ', 'assigned'
-        ]
-        
-        for verb in action_verbs:
-            if verb.lower() in question:
-                score += 0.1
-        
-        return min(score, 1.0)
-    
-    def _create_response(self, intent: str, confidence: float, reasoning: str) -> Dict[str, Any]:
-        """📝 Create standardized response"""
-        
-        should_use_sql = intent in ['business_query', 'data_query']
+        for indicator in self.context_indicators['conversational_context']:
+            if indicator.lower() in question_lower:
+                conversational_indicators += 1
         
         return {
-            'intent': intent,
-            'confidence': confidence,
-            'should_use_sql': should_use_sql,
-            'reasoning': reasoning,
-            'classifier_version': 'smart_dynamic_v1.0',
-            'features': [
-                'dynamic_scoring',
-                'technical_position_detection',
-                'multi_entity_analysis',
-                'context_aware_classification'
-            ]
+            'business_indicators': business_indicators,
+            'conversational_indicators': conversational_indicators,
+            'business_dominant': business_indicators > conversational_indicators,
+            'analysis': f"Business: {business_indicators}, Conversational: {conversational_indicators}"
         }
     
     def get_debug_analysis(self, question: str) -> Dict[str, Any]:
