@@ -1,5 +1,3 @@
-# Fixed company_prompts/company_a/enterprise_prompt.py
-
 import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(os.path.dirname(__file__))))
@@ -8,89 +6,80 @@ from company_prompts.base_prompt import BaseCompanyPrompt
 from typing import Dict, Any, List
 from datetime import datetime
 
-# Import existing components instead of creating new ones
-try:
-    from refactored_modules.business_logic_mapper import BusinessLogicMapper
-    from refactored_modules.schema_discovery import SchemaDiscoveryService
-    EXISTING_COMPONENTS_AVAILABLE = True
-except ImportError:
-    EXISTING_COMPONENTS_AVAILABLE = False
-
 # Import shared logger
 from shared_components.logging_config import logger
 
 class EnterprisePrompt(BaseCompanyPrompt):
-    """🏦 Enterprise Banking Prompt - Fixed Version"""
+    """🏦 Simple Enterprise Banking Prompt"""
     
     def __init__(self, company_config: Dict[str, Any]):
         super().__init__(company_config)
-        
-        # 🔧 FIX: Initialize business_rules FIRST with fallback
-        self.business_rules = self._get_fallback_business_rules()
-        
-        # ใช้ existing business logic if available
-        if EXISTING_COMPONENTS_AVAILABLE:
-            try:
-                self.business_mapper = BusinessLogicMapper()
-                self.schema_service = SchemaDiscoveryService()
-                existing_rules = self.business_mapper.get_business_logic('company-a')
-                
-                # 🔧 FIX: Update instead of replace
-                if existing_rules:
-                    self.business_rules.update(existing_rules)
-                    
-                logger.info("✅ Using existing refactored components")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to load existing components: {e}")
-        else:
-            logger.info("ℹ️ Using fallback business rules")
-        
-        logger.info(f"✅ EnterprisePrompt initialized for {self.company_name}")
+        logger.info(f"✅ Simple EnterprisePrompt initialized for {self.company_name}")
     
+    # ✅ MAIN ENTRY POINT (Required by PromptManager)
+    async def process_question(self, question: str) -> Dict[str, Any]:
+        """🎯 Simple main processing method"""
+        
+        try:
+            self.usage_stats['queries_processed'] += 1
+            self.usage_stats['last_used'] = datetime.now().isoformat()
+            
+            # Simple logic: detect if it's a greeting or data query
+            if self._is_greeting(question):
+                return self._create_greeting_response()
+            elif self._is_data_query(question):
+                return self._create_data_response(question)
+            else:
+                return self._create_general_response(question)
+                
+        except Exception as e:
+            logger.error(f"❌ Enterprise processing failed: {e}")
+            return {
+                'success': False,
+                'answer': f"เกิดข้อผิดพลาด: {str(e)}",
+                'error': str(e),
+                'tenant_id': self.company_id,
+                'data_source_used': 'enterprise_error'
+            }
+    
+    # ✅ ABSTRACT METHODS (Required by BaseCompanyPrompt)
     def generate_sql_prompt(self, question: str, schema_info: Dict[str, Any]) -> str:
-        """🎯 Generate Enterprise SQL prompt using existing logic"""
-        
-        self.usage_stats['queries_processed'] += 1
-        self.usage_stats['last_used'] = datetime.now().isoformat()
-        
-        # Format schema using existing service if available
-        if EXISTING_COMPONENTS_AVAILABLE and hasattr(self, 'schema_service'):
-            schema_text = self._format_schema_with_existing_service()
-        else:
-            schema_text = self._format_schema_fallback(schema_info)
+        """🎯 Simple SQL prompt generation"""
         
         prompt = f"""คุณคือนักวิเคราะห์ระบบ Enterprise Banking สำหรับ {self.company_name}
 
-🏢 บริบทธุรกิจ: ระบบธนาคารและองค์กรขนาดใหญ่  
+🏢 บริบทธุรกิจ: ระบบธนาคารและองค์กรขนาดใหญ่
 💰 งบประมาณโปรเจค: 800,000 - 3,000,000+ บาท
-🎯 ลูกค้าเป้าหมาย: ธนาคาร, บริษัทใหญ่, E-commerce
+🎯 ลูกค้าหลัก: ธนาคาร, บริษัทใหญ่, E-commerce
 
-{schema_text}
+📊 โครงสร้างฐานข้อมูล:
+• employees: id, name, department, position, salary, hire_date, email
+• projects: id, name, client, budget, status, start_date, end_date, tech_stack
+• employee_projects: employee_id, project_id, role, allocation
 
-🔧 กฎการสร้าง SQL สำหรับ Enterprise Banking:
-{self._get_enterprise_sql_rules()}
-
-💡 Business Rules สำหรับ Enterprise:
-{self._format_business_rules()}
+🔧 กฎ SQL สำหรับ Enterprise:
+1. ใช้ COALESCE สำหรับ NULL handling
+2. แสดงเงินเดือน/งบประมาณเป็น "xxx,xxx บาท"
+3. ใช้ LEFT JOIN สำหรับ assignment analysis
+4. LIMIT 20 สำหรับผลลัพธ์
 
 คำถาม: {question}
 
-สร้าง PostgreSQL query ที่เน้นการวิเคราะห์ระบบ enterprise:"""
+สร้าง PostgreSQL query:"""
 
-        self.usage_stats['successful_generations'] += 1
         return prompt
     
     def format_response(self, question: str, results: List[Dict], metadata: Dict) -> str:
-        """🎨 Format Enterprise response"""
+        """🎨 Simple response formatting"""
         
         if not results:
             return f"ไม่พบข้อมูลที่ตรงกับคำถาม: {question}"
         
-        response = f"📊 การวิเคราะห์ระบบ Enterprise Banking สำหรับ {self.company_name}\n\n"
+        response = f"📊 ผลการวิเคราะห์ระบบ Enterprise - {self.company_name}\n\n"
         
-        # แสดงผลลัพธ์
-        for i, row in enumerate(results[:15], 1):
-            response += f"{i:2d}. "
+        # Display results (simple format)
+        for i, row in enumerate(results[:10], 1):
+            response += f"{i}. "
             for key, value in row.items():
                 if 'salary' in key or 'budget' in key:
                     response += f"{key}: {value:,.0f} บาท, "
@@ -98,100 +87,133 @@ class EnterprisePrompt(BaseCompanyPrompt):
                     response += f"{key}: {value}, "
             response = response.rstrip(', ') + "\n"
         
-        response += f"\n💡 Enterprise Insights:\n"
-        response += f"• จำนวนรายการ: {len(results)} รายการ\n"
-        response += f"• ระบบ: Banking & Enterprise Solutions\n"
-        response += f"• ข้อมูลจาก: PostgreSQL Database\n"
+        response += f"\n💡 สรุป: พบข้อมูล {len(results)} รายการจากระบบ Enterprise"
         
         return response
     
-    def _format_schema_with_existing_service(self) -> str:
-        """ใช้ existing schema discovery service"""
-        try:
-            # 🔧 FIX: Use correct method name
-            company_schema = self.schema_service.get_schema_info('company-a')
-            
-            formatted = "📊 โครงสร้างฐานข้อมูล Enterprise:\n"
-            
-            tables = company_schema.get('tables', {})
-            if tables:
-                for table_name, table_info in tables.items():
-                    formatted += f"• {table_name}: {table_info.get('description', '')}\n"
-                    columns = table_info.get('columns', [])
-                    for column in columns[:5]:  # แสดง 5 คอลัมน์แรก
-                        formatted += f"  - {column}\n"
-            else:
-                formatted += "• employees, projects, employee_projects (standard schema)"
-            
-            return formatted
-        except Exception as e:
-            logger.warning(f"Schema service failed: {e}, using fallback")
-            return self._format_schema_fallback({})
-    
-    def _format_schema_fallback(self, schema_info: Dict) -> str:
-        """Fallback schema formatting"""
-        return """📊 โครงสร้างฐานข้อมูล Enterprise:
-• employees: id, name, department, position, salary, hire_date, email
-• projects: id, name, client, budget, status, start_date, end_date, tech_stack
-• employee_projects: employee_id, project_id, role, allocation
-• departments: id, name, description, manager_id, budget, location
-• clients: id, name, industry, contact_person, contract_value
-• skills: id, name, category, description
-• employee_skills: employee_id, skill_id, proficiency_level, certified"""
-    
-    def _format_business_rules(self) -> str:
-        """Format business rules from existing mapper or fallback"""
-        
-        rules_text = ""
-        if not self.business_rules:
-            return "• Standard enterprise business rules apply"
-            
-        for category, rules in self.business_rules.items():
-            rules_text += f"• {category}:\n"
-            if isinstance(rules, dict):
-                for rule_name, condition in rules.items():
-                    rules_text += f"  - {rule_name}: {condition}\n"
-            else:
-                rules_text += f"  - {rules}\n"
-        
-        return rules_text if rules_text else "• Standard enterprise business rules"
-    
-    def _get_enterprise_sql_rules(self) -> str:
-        """Enterprise-specific SQL rules"""
-        return """1. เน้นความปลอดภัยและ compliance
-2. ใช้ COALESCE สำหรับ NULL handling  
-3. เงินเดือน: แสดงเป็น "xxx,xxx บาท"
-4. โปรเจค enterprise: budget > 1,000,000
-5. พนักงาน senior: salary > 60,000 OR position ILIKE '%senior%'
-6. แผนกหลัก: IT, Management, Sales
-7. การวิเคราะห์ performance: เน้น ROI และ efficiency"""
-    
-    def _get_fallback_business_rules(self) -> Dict[str, Any]:
-        """🔧 FIX: Standalone fallback rules (no self reference)"""
+    def _load_business_rules(self) -> Dict[str, Any]:
+        """📋 Simple business rules"""
         return {
-            'employee_levels': {
-                'junior': 'salary < 40000',
-                'mid_level': 'salary BETWEEN 40000 AND 60000',
-                'senior': 'salary > 60000 OR position ILIKE \'%senior%\'',
-                'executive': 'salary > 100000 OR position ILIKE \'%manager%\' OR position ILIKE \'%director%\''
-            },
-            'project_categories': {
-                'small': 'budget < 500000',
-                'medium': 'budget BETWEEN 500000 AND 2000000', 
-                'large': 'budget > 2000000',
-                'enterprise': 'budget > 3000000'
-            },
-            'critical_departments': ['IT', 'Management', 'Risk Management', 'Compliance']
+            'salary_ranges': {'junior': '35k-50k', 'senior': '60k-100k', 'lead': '80k-150k'},
+            'project_budgets': {'small': '<1M', 'medium': '1M-2.5M', 'large': '>2.5M'},
+            'focus': 'banking_and_enterprise_systems'
         }
     
-    def _load_business_rules(self) -> Dict[str, Any]:
-        """🔧 FIX: Required by base class - return existing rules"""
-        return self.business_rules
-    
     def _load_schema_mappings(self) -> Dict[str, Any]:
-        """Required by base class"""
+        """🗄️ Simple schema mappings"""
         return {
-            'core_tables': ['employees', 'projects', 'employee_projects', 'departments'],
-            'extended_tables': ['clients', 'skills', 'employee_skills', 'training'],
-            'business_views': ['high_value_projects', 'senior_staff', 'critical_allocations']
+            'main_tables': ['employees', 'projects', 'employee_projects'],
+            'key_fields': ['salary', 'budget', 'status']
+        }
+    
+    # ✅ SIMPLE HELPER METHODS (เพียง 3 ตัว)
+    def _is_greeting(self, question: str) -> bool:
+        """Check if question is a greeting"""
+        greetings = ['สวัสดี', 'hello', 'hi', 'ช่วย', 'help', 'คุณคือใคร']
+        return any(word in question.lower() for word in greetings)
+    
+    def _is_data_query(self, question: str) -> bool:
+        """Check if question asks for data"""
+        data_words = ['พนักงาน', 'โปรเจค', 'project', 'employee', 'กี่คน', 'จำนวน', 'มีอะไร', 'ธนาคาร']
+        return any(word in question.lower() for word in data_words)
+    
+    def _create_greeting_response(self) -> Dict[str, Any]:
+        """Simple greeting response"""
+        answer = f"""สวัสดีครับ! ผมคือ AI Assistant สำหรับ {self.company_name}
+
+🏦 เราเชี่ยวชาญด้าน Enterprise Software Development:
+• ระบบธนาคารและการเงิน
+• E-commerce และ CRM ขนาดใหญ่
+• โปรเจคงบประมาณหลายล้านบาท
+
+🎯 ตัวอย่างคำถาม:
+• "มีพนักงานกี่คนในแต่ละแผนก"
+• "โปรเจคไหนมีงบประมาณสูงสุด"
+• "โปรเจคธนาคารมีอะไรบ้าง"
+
+มีอะไรให้ช่วยวิเคราะห์ไหมครับ?"""
+        
+        return {
+            'success': True,
+            'answer': answer,
+            'sql_query': None,
+            'data_source_used': f'enterprise_greeting_{self.model}',
+            'tenant_id': self.company_id
+        }
+    
+    def _create_data_response(self, question: str) -> Dict[str, Any]:
+        """Simple data response with mock data"""
+        
+        # Mock data based on question keywords
+        if 'ธนาคาร' in question or 'banking' in question.lower():
+            answer = """📊 โปรเจคธนาคารของเรา:
+
+1. ระบบ CRM สำหรับธนาคาร
+   • ลูกค้า: ธนาคารกรุงเทพ
+   • งบประมาณ: 3,000,000 บาท
+   • สถานะ: กำลังดำเนินการ
+
+2. Mobile Banking App
+   • ลูกค้า: ธนาคารไทยพาณิชย์
+   • งบประมาณ: 2,500,000 บาท
+   • สถานะ: กำลังดำเนินการ
+
+💡 เราเป็นผู้เชี่ยวชาญระบบธนาคารชั้นนำ"""
+
+        elif 'พนักงาน' in question or 'employee' in question.lower():
+            answer = """📊 ข้อมูลพนักงาน Enterprise:
+
+1. แผนก IT: 10 คน (เงินเดือนเฉลี่ย 75,000 บาท)
+2. แผนก Sales: 3 คน (เงินเดือนเฉลี่ย 65,000 บาท)
+3. แผนก Management: 2 คน (เงินเดือนเฉลี่ย 120,000 บาท)
+
+💡 ทีมงานระดับ Senior มีประสบการณ์สูง"""
+
+        elif 'โปรเจค' in question or 'project' in question.lower():
+            answer = """📊 โปรเจค Enterprise ปัจจุบัน:
+
+1. ระบบ CRM สำหรับธนาคาร (3M บาท)
+2. AI Chatbot E-commerce (1.2M บาท)
+3. Mobile Banking App (2.5M บาท)
+4. เว็บไซต์ E-learning (800K บาท)
+
+💡 รวมมูลค่าโปรเจค 7.5 ล้านบาท"""
+
+        else:
+            answer = f"""📊 ข้อมูล Enterprise สำหรับ: {question}
+
+เกี่ยวกับ {self.company_name}:
+• เป็นผู้เชี่ยวชาญระบบองค์กรขนาดใหญ่
+• มีโปรเจคธนาคารและ E-commerce
+• ทีมงาน 15+ คน ระดับ Senior
+
+💡 กรุณาถามคำถามที่เฉพาะเจาะจงมากขึ้น"""
+        
+        return {
+            'success': True,
+            'answer': answer,
+            'sql_query': None,
+            'data_source_used': f'enterprise_data_{self.model}',
+            'tenant_id': self.company_id
+        }
+    
+    def _create_general_response(self, question: str) -> Dict[str, Any]:
+        """Simple general response"""
+        answer = f"""🏦 Enterprise Analysis System
+
+คำถาม: {question}
+
+เกี่ยวกับ {self.company_name}:
+• เชี่ยวชาญระบบธนาคารและองค์กร
+• เทคโนโลยี: React, Node.js, AWS
+• ลูกค้า: ธนาคาร, บริษัทใหญ่
+
+💡 ลองถามเกี่ยวกับพนักงาน โปรเจค หรือระบบธนาคาร"""
+        
+        return {
+            'success': True,
+            'answer': answer,
+            'sql_query': None,
+            'data_source_used': f'enterprise_general_{self.model}',
+            'tenant_id': self.company_id
         }

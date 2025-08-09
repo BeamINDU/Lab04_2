@@ -2,55 +2,47 @@ import sys
 import os
 sys.path.append(os.path.dirname(os.path.dirname(__file__)))
 
-from typing import Dict, Any, Optional , List
+from typing import Dict, Any, Optional
 from shared_components.logging_config import logger
-
-# Import existing components
-try:
-    from refactored_modules.database_handler import DatabaseHandler
-    from refactored_modules.ai_service import AIService
-    from refactored_modules.schema_discovery import SchemaDiscoveryService
-    from refactored_modules.tenant_config import TenantConfigManager
-    EXISTING_COMPONENTS_AVAILABLE = True
-except ImportError:
-    logger.warning("⚠️ Existing components not found, using minimal implementation")
-    EXISTING_COMPONENTS_AVAILABLE = False
 
 # Import company prompts
 from company_prompts.company_a.enterprise_prompt import EnterprisePrompt
-from company_prompts.company_b.tourism_prompt import TourismPrompt  # 🆕 Added
+from company_prompts.company_b.tourism_prompt import TourismPrompt
 
-class PromptManager:
-    """🎯 Enhanced Prompt Manager with Tourism Support"""
+class SimplePromptManager:
+    """🎯 Simple Prompt Manager - เฉพาะที่จำเป็น"""
     
     def __init__(self, tenant_configs: Dict[str, Any]):
+        """🏗️ Initialize เฉพาะที่จำเป็น"""
         self.tenant_configs = tenant_configs
-        
-        # ใช้ existing services if available
-        if EXISTING_COMPONENTS_AVAILABLE:
-            try:
-                self.database_handler = DatabaseHandler(tenant_configs)
-                self.ai_service = AIService()
-                self.schema_service = SchemaDiscoveryService()
-                logger.info("✅ Using existing refactored components")
-            except Exception as e:
-                logger.warning(f"⚠️ Failed to load existing components: {e}")
-                self.database_handler = None
-                self.ai_service = None
-                self.schema_service = None
-        else:
-            self.database_handler = None
-            self.ai_service = None
-            self.schema_service = None
+        self.company_prompts = {}
         
         # Initialize company prompts
-        self.company_prompts = {}
-        self._initialize_company_prompts()
+        self._init_company_prompts()
         
-        logger.info(f"✅ Enhanced PromptManager initialized with {len(self.company_prompts)} company prompts")
+        logger.info(f"✅ Simple PromptManager initialized with {len(self.company_prompts)} company prompts")
     
-    def _initialize_company_prompts(self):
-        """Initialize company prompts with Tourism support"""
+    # ========================================================================
+    # 🎯 CORE METHODS (เฉพาะ 4 ตัวที่จำเป็น)
+    # ========================================================================
+    
+    async def process_query(self, question: str, tenant_id: str) -> Dict[str, Any]:
+        """🎯 1. Main query processing method"""
+        
+        try:
+            if tenant_id in self.company_prompts:
+                # Use company-specific prompt
+                return await self._use_company_prompt(question, tenant_id)
+            else:
+                # Use simple fallback
+                return self._create_simple_response(question, tenant_id)
+                
+        except Exception as e:
+            logger.error(f"❌ Query processing failed: {e}")
+            return self._create_error_response(str(e), tenant_id)
+    
+    def _init_company_prompts(self):
+        """🎯 2. Initialize company prompts - simple"""
         
         for tenant_id, config in self.tenant_configs.items():
             try:
@@ -60,190 +52,161 @@ class PromptManager:
                     # Enterprise Banking
                     self.company_prompts[tenant_id] = EnterprisePrompt(company_config)
                     logger.info(f"✅ EnterprisePrompt initialized for {tenant_id}")
-                    pass
+                    
                 elif tenant_id == 'company-b':
-                    # 🆕 Tourism & Hospitality
+                    # Tourism & Hospitality
                     self.company_prompts[tenant_id] = TourismPrompt(company_config)
                     logger.info(f"🏨 TourismPrompt initialized for {tenant_id}")
-                    
+                
+                # Company C ใช้ fallback ง่ายๆ
                 else:
-                    # Company C - ยังไม่ implement
-                    logger.info(f"⚠️ Using fallback for {tenant_id} (not implemented yet)")
+                    logger.info(f"⚠️ Using fallback for {tenant_id}")
                     
             except Exception as e:
                 logger.error(f"❌ Failed to initialize prompt for {tenant_id}: {e}")
     
-    async def process_query(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """🎯 Enhanced query processing with Tourism support"""
+    async def _use_company_prompt(self, question: str, tenant_id: str) -> Dict[str, Any]:
+        """🎯 3. Use company-specific prompt - simple"""
+        
+        company_prompt = self.company_prompts[tenant_id]
         
         try:
-            if tenant_id in self.company_prompts:
-                # ใช้ company-specific prompt (A หรือ B)
-                return await self._process_with_company_prompt(question, tenant_id)
-            else:
-                # Fallback สำหรับ Company C
-                return await self._process_with_existing_system(question, tenant_id)
-                
-        except Exception as e:
-            logger.error(f"❌ Query processing failed: {e}")
-            return {
-                'success': False,
-                'answer': f"เกิดข้อผิดพลาด: {str(e)}",
-                'error': str(e),
-                'tenant_id': tenant_id
-            }
-    
-    async def _process_with_company_prompt(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """ใช้ company-specific prompt (Enterprise หรือ Tourism)"""
-        
-        prompt_instance = self.company_prompts[tenant_id]
-        
-        try:
-            # 1. Get schema info
-            if self.schema_service:
-                schema_info = self.schema_service.get_schema_info(tenant_id)
-            else:
-                schema_info = self._get_fallback_schema_info(tenant_id)
+            # Call company prompt's process_question method
+            result = await company_prompt.process_question(question)
             
-            # 2. Generate company-specific prompt
-            sql_prompt = prompt_instance.generate_sql_prompt(question, schema_info)
-            
-            # 3. Call AI service
-            if self.ai_service and EXISTING_COMPONENTS_AVAILABLE:
-                config = self._create_tenant_config_object(tenant_id)
-                ai_response = await self.ai_service.call_ollama_api(
-                    tenant_config=config,
-                    prompt=sql_prompt,
-                    context_data="",
-                    temperature=0.1
-                )
-            else:
-                # Simple fallback SQL based on company type
-                ai_response = self._generate_fallback_sql(question, tenant_id)
-            
-            # 4. Extract SQL and execute
-            sql_query = self._extract_sql_from_response(ai_response)
-            
-            if self.database_handler:
-                results = self.database_handler.execute_sql_query(tenant_id, sql_query)
-            else:
-                # Mock results based on company
-                results = self._generate_mock_results(tenant_id, question)
-            
-            # 5. Format company-specific response
-            formatted_response = prompt_instance.format_response(question, results, {
-                'sql_query': sql_query,
-                'results_count': len(results)
+            # Add metadata
+            result.update({
+                'prompt_system_used': type(company_prompt).__name__,
+                'company_id': tenant_id,
+                'processing_method': 'company_specific_simple'
             })
             
-            return {
-                'success': True,
-                'answer': formatted_response,
-                'sql_query': sql_query,
-                'results_count': len(results),
-                'tenant_id': tenant_id,
-                'prompt_type': prompt_instance.__class__.__name__,
-                'system_version': 'modular_with_tourism_support_v2.0'
-            }
+            return result
             
         except Exception as e:
-            logger.error(f"❌ Company prompt processing failed: {e}")
-            raise e
+            logger.error(f"Company prompt failed for {tenant_id}: {e}")
+            return self._create_simple_response(question, tenant_id, f"Company prompt error: {e}")
     
-    def _get_fallback_schema_info(self, tenant_id: str) -> Dict[str, Any]:
-        """Get fallback schema info based on company type"""
+    def _create_simple_response(self, question: str, tenant_id: str, error_reason: str = None) -> Dict[str, Any]:
+        """🎯 4. Create simple response - fallback"""
         
-        if tenant_id == 'company-a':
-            return {
-                'description': 'Enterprise Banking Database',
-                'focus': 'Banking systems, large projects, enterprise clients'
-            }
-        elif tenant_id == 'company-b':
-            return {
-                'description': 'Tourism & Hospitality Database',
-                'focus': 'Tourism projects, hotels, regional clients, cultural sites'
-            }
+        config = self.tenant_configs.get(tenant_id, {})
+        business_type = config.get('business_type', 'general')
+        company_name = config.get('name', 'Unknown Company')
+        
+        # Simple responses based on business type
+        if business_type == 'tourism_hospitality':
+            answer = f"""🏨 {company_name} - ระบบท่องเที่ยวและโรงแรม
+
+คำถาม: {question}
+
+เราเชี่ยวชาญด้าน:
+• ระบบจองโรงแรมและที่พัก
+• แอปพลิเคชันท่องเที่ยว
+• ระบบจัดการทัวร์และกิจกรรม
+• เทคโนโลยีสำหรับธุรกิจบริการ
+
+กรุณาถามคำถามที่เฉพาะเจาะจงมากขึ้น เช่น:
+• "มีโปรเจคท่องเที่ยวอะไรบ้าง"
+• "โรงแรมไหนเป็นลูกค้าของเรา"
+• "ระบบจองที่พักทำงานอย่างไร"
+
+{f"⚠️ หมายเหตุ: {error_reason}" if error_reason else ""}"""
+
+        elif business_type == 'enterprise':
+            answer = f"""🏦 {company_name} - ระบบองค์กรและธนาคาร
+
+คำถาม: {question}
+
+เราเชี่ยวชาญด้าน:
+• ระบบธนาคารและการเงิน
+• E-commerce และ CRM ขนาดใหญ่
+• ระบบ AI และ Chatbot
+• Mobile Banking และ Fintech
+
+กรุณาถามคำถามที่เฉพาะเจาะจงมากขึ้น เช่น:
+• "มีพนักงานกี่คนในแต่ละแผนก"
+• "โปรเจคธนาคารมีอะไรบ้าง"
+• "งบประมาณโปรเจคเท่าไร"
+
+{f"⚠️ หมายเหตุ: {error_reason}" if error_reason else ""}"""
+
+        elif business_type == 'global_operations':
+            answer = f"""🌍 {company_name} - International Software Solutions
+
+Question: {question}
+
+We specialize in:
+• Global software platforms
+• Multi-currency systems
+• Cross-border solutions
+• International compliance systems
+
+Please ask more specific questions like:
+• "Which international projects exist"
+• "What is the USD budget breakdown"
+• "How many overseas clients do we have"
+
+{f"⚠️ Note: {error_reason}" if error_reason else ""}"""
+
         else:
-            return {
-                'description': 'General Business Database',
-                'focus': 'Standard business operations'
-            }
+            answer = f"""💼 {company_name}
+
+คำถาม: {question}
+
+เราเป็นบริษัทพัฒนาซอฟต์แวร์ที่มีความเชี่ยวชาญในการสร้างระบบต่างๆ
+
+กรุณาถามคำถามที่เฉพาะเจาะจงมากขึ้น เกี่ยวกับ:
+• ข้อมูลพนักงาน
+• โปรเจคและงบประมาณ  
+• ระบบและเทคโนโลยี
+
+{f"⚠️ หมายเหตุ: {error_reason}" if error_reason else ""}"""
+        
+        return {
+            'success': True,
+            'answer': answer,
+            'sql_query': None,
+            'data_source_used': f'simple_fallback_{config.get("model", "default")}',
+            'tenant_id': tenant_id,
+            'processing_method': 'simple_fallback',
+            'fallback_reason': error_reason
+        }
     
-    def _generate_fallback_sql(self, question: str, tenant_id: str) -> str:
-        """Generate fallback SQL based on company and question"""
-        
-        question_lower = question.lower()
-        
-        if tenant_id == 'company-b':
-            # Tourism-specific fallback SQL
-            if any(word in question_lower for word in ['ท่องเที่ยว', 'tourism', 'โรงแรม', 'hotel']):
-                return """SELECT name as project_name, client, budget, status 
-                         FROM projects 
-                         WHERE client ILIKE '%ท่องเที่ยว%' OR client ILIKE '%โรงแรม%' 
-                         ORDER BY budget DESC LIMIT 10;"""
-            elif any(word in question_lower for word in ['ร้านอาหาร', 'restaurant', 'อาหาร']):
-                return """SELECT name as project_name, client, budget 
-                         FROM projects 
-                         WHERE client ILIKE '%ร้านอาหาร%' OR client ILIKE '%อาหาร%' 
-                         ORDER BY start_date DESC LIMIT 10;"""
-            else:
-                return """SELECT name, position, department FROM employees 
-                         WHERE department = 'IT' 
-                         ORDER BY hire_date DESC LIMIT 10;"""
-        
-        elif tenant_id == 'company-a':
-            # Enterprise-specific fallback SQL
-            if any(word in question_lower for word in ['ธนาคาร', 'bank', 'enterprise']):
-                return """SELECT name as project_name, client, budget 
-                         FROM projects 
-                         WHERE client ILIKE '%ธนาคาร%' OR budget > 2000000 
-                         ORDER BY budget DESC LIMIT 10;"""
-        
-        # General fallback
-        return "SELECT name, position, department FROM employees LIMIT 10;"
+    # ========================================================================
+    # 🔧 SIMPLE HELPER METHODS (ไม่นับเป็น core methods)
+    # ========================================================================
     
-    def _generate_mock_results(self, tenant_id: str, question: str) -> List[Dict[str, Any]]:
-        """Generate mock results for testing"""
+    def _create_error_response(self, error_message: str, tenant_id: str) -> Dict[str, Any]:
+        """Create error response"""
         
-        if tenant_id == 'company-b':
-            # Tourism mock data
-            return [
-                {'project_name': 'ระบบจัดการโรงแรม', 'client': 'โรงแรมดุสิต เชียงใหม่', 'budget': 800000, 'status': 'active'},
-                {'project_name': 'เว็บไซต์ท่องเที่ยว', 'client': 'การท่องเที่ยวแห่งประเทศไทย', 'budget': 600000, 'status': 'active'},
-                {'project_name': 'Mobile App สวนสวยงาม', 'client': 'สวนพฤกษศาสตร์เชียงใหม่', 'budget': 450000, 'status': 'completed'}
-            ]
-        elif tenant_id == 'company-a':
-            # Enterprise mock data
-            return [
-                {'project_name': 'ระบบ CRM สำหรับธนาคาร', 'client': 'ธนาคารกรุงเทพ', 'budget': 3000000, 'status': 'active'},
-                {'project_name': 'AI Chatbot E-commerce', 'client': 'Central Group', 'budget': 1200000, 'status': 'active'}
-            ]
-        
-        return [{'message': 'No mock data available'}]
+        return {
+            'success': False,
+            'answer': f"เกิดข้อผิดพลาด: {error_message}",
+            'error': error_message,
+            'tenant_id': tenant_id,
+            'data_source_used': 'simple_error',
+            'processing_method': 'simple_error'
+        }
     
-    def _create_tenant_config_object(self, tenant_id: str):
-        """Create tenant config object for AI service"""
+    def get_statistics(self) -> Dict[str, Any]:
+        """Get simple statistics"""
         
-        # Mock tenant config for AI service
-        class MockTenantConfig:
-            def __init__(self, tenant_id, config):
-                self.tenant_id = tenant_id
-                self.model_name = config.get('model', 'llama3.1:8b')
-                self.language = config.get('language', 'th')
-                self.name = config.get('name', f'Company {tenant_id.upper()}')
-        
-        return MockTenantConfig(tenant_id, self.tenant_configs[tenant_id])
+        return {
+            'total_prompts': len(self.company_prompts),
+            'supported_companies': list(self.company_prompts.keys()),
+            'company_types': {
+                tenant_id: type(prompt).__name__ 
+                for tenant_id, prompt in self.company_prompts.items()
+            },
+            'system_version': 'simple_v1.0'
+        }
+    
+    # ========================================================================
+    # 🔄 COMPATIBILITY METHODS (เพื่อความเข้ากันได้กับระบบเดิม)
+    # ========================================================================
     
     def get_all_statistics(self) -> Dict[str, Any]:
-        """Get statistics for all company prompts"""
-        
-        stats = {
-            'total_companies': len(self.company_prompts),
-            'active_prompts': list(self.company_prompts.keys()),
-            'company_statistics': {}
-        }
-        
-        for tenant_id, prompt_instance in self.company_prompts.items():
-            stats['company_statistics'][tenant_id] = prompt_instance.get_statistics()
-        
-        return stats
+        """Compatibility method"""
+        return self.get_statistics()
+
