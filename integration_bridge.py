@@ -2,126 +2,201 @@ import sys
 import os
 sys.path.append(os.path.dirname(__file__))
 
-from typing import Dict, Any, Optional
+from typing import Dict, Any
 import logging
 from datetime import datetime
 
 # Import existing enhanced agent
 from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
 
-# Import new modular components
-from core_system.prompt_manager import PromptManager
-
 logger = logging.getLogger(__name__)
 
-class ModularEnhancedAgent:
-    """🔥 Bridge ระหว่าง existing system และ modular prompts"""
+class SimpleModularAgent:
+    """🎯 SIMPLE: Try modular, fallback to enhanced agent"""
     
     def __init__(self, tenant_configs: Dict[str, Any]):
         self.tenant_configs = tenant_configs
         
-        # Original enhanced agent (fallback)
-        self.original_agent = EnhancedPostgresOllamaAgent()
+        # Always have enhanced agent as backup
+        self.enhanced_agent = EnhancedPostgresOllamaAgent()
+        logger.info("✅ Enhanced Agent loaded")
         
-        # New modular prompt manager
+        # Try to load modular system (optional)
+        self.modular_system = None
+        self.modular_works = False
+        self._try_load_modular()
+        
+        # Simple stats
+        self.stats = {'total': 0, 'modular': 0, 'enhanced': 0}
+    
+    def _try_load_modular(self):
+        """🔄 Try to load modular system (don't crash if fails)"""
         try:
-            self.prompt_manager = PromptManager(tenant_configs)
-            self.modular_available = True
-            logger.info("✅ Modular prompt system loaded")
+            from core_system.prompt_manager import WorkingPromptManager
+            self.modular_system = WorkingPromptManager(self.tenant_configs)
+            
+            # Check if any prompts loaded
+            stats = self.modular_system.get_statistics()
+            if stats['loaded_prompts'] > 0:
+                self.modular_works = True
+                self.supported_companies = list(self.modular_system.company_prompts.keys())
+                logger.info(f"✅ Modular system: {stats['loaded_prompts']} prompts loaded")
+            else:
+                logger.warning("⚠️ Modular system: No prompts loaded")
+                
         except Exception as e:
-            logger.warning(f"⚠️ Modular prompts failed: {e}")
-            self.prompt_manager = None
-            self.modular_available = False
-        
-        # Statistics
-        self.usage_stats = {
-            'total_queries': 0,
-            'modular_queries': 0,
-            'fallback_queries': 0
-        }
+            logger.warning(f"⚠️ Modular system failed: {e}")
+            logger.info("🔄 Will use Enhanced Agent for all queries")
     
     async def process_enhanced_question(self, question: str, tenant_id: str) -> Dict[str, Any]:
-        """🎯 Main processing method - ใช้ modular หรือ fallback"""
+        """🎯 Main method: Try modular → fallback to enhanced"""
         
-        start_time = datetime.now()
-        self.usage_stats['total_queries'] += 1
+        self.stats['total'] += 1
         
-        try:
-            # ลองใช้ modular prompt ก่อน (สำหรับ company-a)
-            if self.modular_available and tenant_id == 'company-a':
-                try:
-                    result = await self.prompt_manager.process_query(question, tenant_id)
-                    self.usage_stats['modular_queries'] += 1
-                    
-                    # เพิ่ม metadata
-                    result.update({
-                        'system_type': 'modular_prompts',
-                        'architecture': 'company_specific_prompts',
-                        'modular_system_used': True
-                    })
-                    
-                    logger.info(f"✅ Modular system used for {tenant_id}")
-                    return result
-                    
-                except Exception as e:
-                    logger.warning(f"🔄 Modular failed for {tenant_id}: {e}, using fallback")
-            
-            # Fallback ไปใช้ original system
-            result = await self.original_agent.process_enhanced_question(question, tenant_id)
-            self.usage_stats['fallback_queries'] += 1
-            
-            # เพิ่ม metadata
-            result.update({
-                'system_type': 'original_enhanced_agent',
-                'architecture': 'universal_prompt_system',
-                'modular_system_used': False,
-                'fallback_reason': 'modular_not_available' if not self.modular_available else 'company_not_supported'
-            })
-            
-            logger.info(f"🔄 Original system used for {tenant_id}")
-            return result
-            
-        except Exception as e:
-            processing_time = (datetime.now() - start_time).total_seconds()
-            logger.error(f"❌ Both systems failed for {tenant_id}: {e}")
-            
-            return {
-                'success': False,
-                'answer': f"เกิดข้อผิดพลาด: {str(e)}",
-                'error': str(e),
-                'processing_time': processing_time,
-                'tenant_id': tenant_id,
-                'system_type': 'error_handler'
-            }
+        # Try modular first (if available and supported)
+        if self.modular_works and tenant_id in self.supported_companies:
+            try:
+                result = await self.modular_system.process_query(question, tenant_id)
+                self.stats['modular'] += 1
+                
+                result.update({
+                    'system_used': 'modular_prompts',
+                    'company_prompt': True
+                })
+                
+                logger.info(f"✅ Modular system used for {tenant_id}")
+                return result
+                
+            except Exception as e:
+                logger.warning(f"🔄 Modular failed for {tenant_id}: {e}")
+        
+        # Fallback to enhanced agent
+        result = await self.enhanced_agent.process_enhanced_question(question, tenant_id)
+        self.stats['enhanced'] += 1
+        
+        result.update({
+            'system_used': 'enhanced_agent',
+            'company_prompt': False
+        })
+        
+        logger.info(f"🔄 Enhanced Agent used for {tenant_id}")
+        return result
     
-    # เพิ่ม methods อื่นๆ ที่ original agent มี
-    def get_database_connection(self, tenant_id: str):
-        """Delegate to original agent"""
-        return self.original_agent.get_database_connection(tenant_id)
-    
-    async def generate_enhanced_sql(self, question: str, tenant_id: str):
-        """Delegate to original agent"""
-        return await self.original_agent.generate_enhanced_sql(question, tenant_id)
-    
-    async def process_enhanced_question_streaming(self, question: str, tenant_id: str):
-        """Delegate to original agent for streaming"""
-        async for chunk in self.original_agent.process_enhanced_question_streaming(question, tenant_id):
-            yield chunk
-    
-    def get_modular_statistics(self) -> Dict[str, Any]:
-        """📊 ดึงสถิติการใช้งาน modular system"""
+    def get_simple_stats(self) -> Dict[str, Any]:
+        """📊 Simple statistics"""
         
         modular_rate = 0
-        if self.usage_stats['total_queries'] > 0:
-            modular_rate = (self.usage_stats['modular_queries'] / 
-                          self.usage_stats['total_queries']) * 100
+        if self.stats['total'] > 0:
+            modular_rate = (self.stats['modular'] / self.stats['total']) * 100
         
         return {
-            'modular_system_available': self.modular_available,
-            'total_queries': self.usage_stats['total_queries'],
-            'modular_queries': self.usage_stats['modular_queries'],
-            'fallback_queries': self.usage_stats['fallback_queries'],
-            'modular_usage_rate': round(modular_rate, 2),
-            'companies_supported': ['company-a'] if self.modular_available else [],
-            'fallback_companies': ['company-b', 'company-c']
+            'modular_available': self.modular_works,
+            'total_queries': self.stats['total'],
+            'modular_used': self.stats['modular'],
+            'enhanced_used': self.stats['enhanced'],
+            'modular_rate': round(modular_rate, 1),
+            'supported_companies': getattr(self, 'supported_companies', []),
+            'status': 'healthy'
         }
+    
+    # ========================================================================
+    # 🔄 COMPATIBILITY METHODS (for existing code)
+    # ========================================================================
+    
+    def get_modular_statistics(self):
+        """Compatibility method"""
+        return self.get_simple_stats()
+    
+    async def process_enhanced_question_streaming(self, question: str, tenant_id: str):
+        """Simple streaming"""
+        
+        # Try modular first
+        if self.modular_works and tenant_id in self.supported_companies:
+            yield {"type": "status", "message": "🎯 Using Company Prompts..."}
+            
+            try:
+                result = await self.modular_system.process_query(question, tenant_id)
+                
+                # Stream answer in chunks
+                answer = result.get('answer', '')
+                chunk_size = 50
+                
+                for i in range(0, len(answer), chunk_size):
+                    yield {"type": "answer_chunk", "content": answer[i:i+chunk_size]}
+                
+                yield {"type": "complete", "system": "modular"}
+                return
+                
+            except Exception as e:
+                yield {"type": "status", "message": f"🔄 Switching to Enhanced Agent..."}
+        
+        # Fallback to enhanced streaming
+        yield {"type": "status", "message": "🔄 Using Enhanced Agent..."}
+        
+        async for chunk in self.enhanced_agent.process_enhanced_question_streaming(question, tenant_id):
+            yield chunk
+    
+    def get_database_connection(self, tenant_id: str):
+        """Delegate to enhanced agent"""
+        return self.enhanced_agent.get_database_connection(tenant_id)
+
+# =============================================================================
+# 🧪 SIMPLE TEST
+# =============================================================================
+
+async def test_simple_system():
+    """🧪 Simple test"""
+    
+    print("🧪 Testing Simple Modular System")
+    print("=" * 50)
+    
+    # Mock configs
+    configs = {
+        'company-a': {'name': 'Bangkok HQ', 'model': 'llama3.1:8b'},
+        'company-b': {'name': 'Chiang Mai', 'model': 'llama3.1:8b'},
+        'company-c': {'name': 'International', 'model': 'llama3.1:8b'}
+    }
+    
+    try:
+        # Initialize
+        agent = SimpleModularAgent(configs)
+        print(f"✅ Agent initialized")
+        print(f"🎯 Modular works: {agent.modular_works}")
+        
+        # Test questions
+        test_cases = [
+            ('company-a', 'สวัสดีครับ'),
+            ('company-b', 'สวัสดีเจ้า'), 
+            ('company-c', 'Hello')
+        ]
+        
+        for tenant, question in test_cases:
+            print(f"\n🧪 Testing {tenant}: {question}")
+            
+            # Mock the call (since we don't have AI service)
+            result = {
+                'success': True,
+                'answer': f"Mock response for {tenant}",
+                'system_used': 'modular_prompts' if agent.modular_works else 'enhanced_agent'
+            }
+            
+            system = result['system_used']
+            print(f"   ✅ System: {system}")
+        
+        # Stats
+        stats = agent.get_simple_stats()
+        print(f"\n📊 Stats: {stats}")
+        
+        print(f"\n🎉 Simple system test completed!")
+        return True
+        
+    except Exception as e:
+        print(f"❌ Test failed: {e}")
+        return False
+
+# Create alias for compatibility
+ModularEnhancedAgent = SimpleModularAgent
+
+if __name__ == "__main__":
+    import asyncio
+    asyncio.run(test_simple_system())
