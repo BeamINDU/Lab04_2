@@ -13,7 +13,6 @@ from typing import Optional, Dict, Any
 from datetime import datetime
 import logging
 from pydantic import BaseModel
-
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
@@ -69,8 +68,8 @@ app.add_middleware(
 # =============================================================================
 
 try:
-    from integration_bridge import ModularEnhancedAgent
-    enhanced_agent = ModularEnhancedAgent(TENANT_CONFIGS)
+    from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
+    enhanced_agent = EnhancedPostgresOllamaAgent()
     print("✅ Modular Enhanced Agent loaded")
 except Exception as e:
     print(f"⚠️ Modular system failed: {e}")

@@ -25,7 +25,6 @@ COPY refactored_modules/ ./refactored_modules/
 
 # Copy main application files
 COPY enhanced_multi_agent_service.py .
-COPY integration_bridge.py .
 
 # Copy company prompts (if they exist)
 COPY company_prompts/ ./company_prompts/
