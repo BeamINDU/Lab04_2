@@ -16,7 +16,6 @@ from pydantic import BaseModel
 # Configure logging
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger(__name__)
-
 # =============================================================================
 # SIMPLE TENANT CONFIGURATIONS
 # =============================================================================
@@ -68,14 +67,14 @@ app.add_middleware(
 # =============================================================================
 
 try:
-    from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
-    enhanced_agent = EnhancedPostgresOllamaAgent()
+    from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgent
+    enhanced_agent = UnifiedEnhancedPostgresOllamaAgent()
     print("✅ Modular Enhanced Agent loaded")
 except Exception as e:
     print(f"⚠️ Modular system failed: {e}")
     try:
-        from refactored_modules.enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
-        enhanced_agent = EnhancedPostgresOllamaAgent()
+        from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgent
+        enhanced_agent = UnifiedEnhancedPostgresOllamaAgent()
         print("✅ Enhanced agent loaded (fallback)")
     except Exception as fallback_error:
         print(f"❌ All systems failed: {fallback_error}")
