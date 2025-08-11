@@ -67,14 +67,14 @@ app.add_middleware(
 # =============================================================================
 
 try:
-    from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgent
-    enhanced_agent = UnifiedEnhancedPostgresOllamaAgent()
+    from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgentWithAIResponse 
+    enhanced_agent = UnifiedEnhancedPostgresOllamaAgentWithAIResponse ()
     print("✅ Modular Enhanced Agent loaded")
 except Exception as e:
     print(f"⚠️ Modular system failed: {e}")
     try:
-        from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgent
-        enhanced_agent = UnifiedEnhancedPostgresOllamaAgent()
+        from refactored_modules.enhanced_postgres_agent_unified import UnifiedEnhancedPostgresOllamaAgentWithAIResponse 
+        enhanced_agent = UnifiedEnhancedPostgresOllamaAgentWithAIResponse ()
         print("✅ Enhanced agent loaded (fallback)")
     except Exception as fallback_error:
         print(f"❌ All systems failed: {fallback_error}")
@@ -256,7 +256,24 @@ async def health_check():
             } for tid, config in TENANT_CONFIGS.items()
         }
     }
+@app.get("/schema-stats")
+async def get_schema_statistics():
+    """📊 ดูสถิติของระบบ Intelligent Schema Discovery"""
+    try:
+        stats = await enhanced_agent.get_intelligent_schema_stats()
+        return stats
+    except Exception as e:
+        raise HTTPException(500, f"Failed to get schema stats: {str(e)}")
 
+@app.post("/clear-schema-cache")
+async def clear_schema_cache(tenant_id: Optional[str] = None):
+    """🗑️ ล้าง cache ของ schema discovery"""
+    try:
+        enhanced_agent.clear_schema_cache(tenant_id)
+        return {"message": f"Schema cache cleared for {tenant_id if tenant_id else 'all tenants'}"}
+    except Exception as e:
+        raise HTTPException(500, f"Failed to clear cache: {str(e)}")
+    
 @app.get("/tenants")
 async def list_tenants():
     """List all tenants"""

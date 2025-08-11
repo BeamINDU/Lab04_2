@@ -1,7 +1,6 @@
 from .tenant_config import TenantConfigManager, TenantConfig
 from .database_handler import EnhancedDatabaseHandler, DatabaseHandler
-from .ai_service import EnhancedAIService, AIService
-from .enhanced_postgres_agent_refactored import EnhancedPostgresOllamaAgent
+
 
 __version__ = "2.1.0"
 __author__ = "SiamTech Development Team"
