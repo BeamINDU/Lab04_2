@@ -264,6 +264,58 @@ async def get_schema_statistics():
         return stats
     except Exception as e:
         raise HTTPException(500, f"Failed to get schema stats: {str(e)}")
+    
+@app.post("/enhanced-rag-query-streaming-response")
+async def enhanced_rag_query_with_streaming_response(
+    request: RAGQuery,
+    tenant_id: str = Depends(get_tenant_id)
+):
+    """🌊 New endpoint: Non-streaming SQL + Streaming Response"""
+    
+    if request.tenant_id and request.tenant_id in TENANT_CONFIGS:
+        tenant_id = request.tenant_id
+    
+    async def generate_selective_streaming():
+        try:
+            config = TENANT_CONFIGS[tenant_id]
+            
+            # Send initial metadata
+            metadata = {
+                "type": "session_start",
+                "tenant_id": tenant_id,
+                "tenant_name": config["name"],
+                "model": config["model"],
+                "streaming_mode": "response_only"
+            }
+            yield f"data: {json.dumps(metadata)}\n\n"
+            
+            # Process with streaming response
+            async for chunk in enhanced_agent._process_sql_unified_with_streaming_response(
+                request.query, tenant_id, {"intent": "sql_query", "confidence": 0.8}
+            ):
+                yield f"data: {json.dumps(chunk)}\n\n"
+                
+                # Small delay for better UX
+                if chunk.get("type") == "response_chunk":
+                    await asyncio.sleep(0.03)  # Slightly slower than typing speed
+                    
+        except Exception as e:
+            error_data = {
+                "type": "error", 
+                "message": f"Streaming failed: {str(e)}",
+                "tenant_id": tenant_id
+            }
+            yield f"data: {json.dumps(error_data)}\n\n"
+
+    return StreamingResponse(
+        generate_selective_streaming(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "Connection": "keep-alive",
+            "Access-Control-Allow-Origin": "*"
+        }
+    )
 
 @app.post("/clear-schema-cache")
 async def clear_schema_cache(tenant_id: Optional[str] = None):

@@ -189,6 +189,39 @@ async def process_chat_request(tenant_id: str, message: str, stream: bool = Fals
 # 🎯 MAIN STREAMING ENDPOINT
 # =============================================================================
 
+async def process_chat_request_with_response_streaming(tenant_id: str, message: str):
+    """🎯 Enhanced processing with response streaming only"""
+    
+    payload = {
+        "query": message,
+        "tenant_id": tenant_id
+    }
+    
+    try:
+        async with aiohttp.ClientSession() as session:
+            async with session.post(
+                f"{config.rag_service_url}/enhanced-rag-query-streaming-response",
+                json=payload,
+                headers={"X-Tenant-ID": tenant_id},
+                timeout=aiohttp.ClientTimeout(total=120)
+            ) as response:
+                
+                if response.status == 200:
+                    async for line in response.content:
+                        if line:
+                            try:
+                                line_str = line.decode('utf-8').strip()
+                                if line_str.startswith('data: '):
+                                    data_str = line_str[6:]  # Remove 'data: '
+                                    if data_str and data_str != '[DONE]':
+                                        chunk_data = json.loads(data_str)
+                                        yield chunk_data
+                            except json.JSONDecodeError:
+                                continue
+                                
+    except Exception as e:
+        yield {"type": "error", "message": f"Connection failed: {str(e)}"}
+
 @app.post("/v1/chat/completions")
 async def chat_completions_streaming(request: ChatCompletionRequest):
     """🎯 OpenAI-compatible endpoint with N8N workflow support"""
@@ -239,13 +272,11 @@ async def chat_completions_streaming(request: ChatCompletionRequest):
                     # Process through N8N or direct RAG
                     full_answer = ""
                     
-                    async for chunk in process_chat_request(tenant_id, user_message, stream=True):
+                    async for chunk in process_chat_request_with_response_streaming(tenant_id, user_message):
                         chunk_type = chunk.get("type", "")
                         
-                        if chunk_type == "answer":
-                            content = chunk.get("content", "")
-                            full_answer += content
-                            
+                        if chunk_type == "response_chunk":
+                            # Convert to OpenAI format
                             content_chunk = {
                                 "id": f"chatcmpl-{int(datetime.now().timestamp())}",
                                 "object": "chat.completion.chunk",
@@ -253,11 +284,28 @@ async def chat_completions_streaming(request: ChatCompletionRequest):
                                 "model": tenant_config['model'],
                                 "choices": [{
                                     "index": 0,
-                                    "delta": {"content": content},
+                                    "delta": {"content": chunk.get("content", "")},
                                     "finish_reason": None
                                 }]
                             }
                             yield f"data: {json.dumps(content_chunk)}\n\n"
+                            
+                        elif chunk_type == "response_complete":
+                            # Send final chunk
+                            final_chunk = {
+                                "id": f"chatcmpl-{int(datetime.now().timestamp())}",
+                                "object": "chat.completion.chunk",
+                                "created": int(datetime.now().timestamp()),
+                                "model": tenant_config['model'],
+                                "choices": [{
+                                    "index": 0,
+                                    "delta": {},
+                                    "finish_reason": "stop"
+                                }]
+                            }
+                            yield f"data: {json.dumps(final_chunk)}\n\n"
+                            yield "data: [DONE]\n\n"
+                            break
                             
                         elif chunk_type == "error":
                             error_chunk = {

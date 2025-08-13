@@ -945,8 +945,9 @@ Intent: {intent_result['intent']} (confidence: {intent_result['confidence']:.2f}
     # ========================================================================
     
     async def _generate_ai_response_from_data(self, question: str, db_results: List[Dict], 
-                                            tenant_id: str, sql_query: str, schema_info: Dict = None) -> str:
-        """🤖 Fixed: Added schema_info parameter with default None"""
+                                            tenant_id: str, sql_query: str, 
+                                            enable_streaming: bool = True) -> str:
+        """🤖 Generate AI response with optional streaming"""
         
         config = self.tenant_configs[tenant_id]
         business_context = self._get_business_context_unified(tenant_id)
@@ -962,16 +963,185 @@ Intent: {intent_result['intent']} (confidence: {intent_result['confidence']:.2f}
         
         logger.info(f"🤖 Generating AI response for {tenant_id} with {len(db_results)} results")
         
-        # Call AI for response generation
-        ai_response = await self._call_ollama_unified(
-            tenant_id, response_prompt, temperature=self.ai_response_temperature
-        )
+        if enable_streaming:
+            # 🆕 Streaming response generation
+            return await self._call_ollama_streaming(tenant_id, response_prompt)
+        else:
+            # Original non-streaming
+            ai_response = await self._call_ollama_unified(
+                tenant_id, response_prompt, temperature=self.ai_response_temperature
+            )
+            return self._post_process_ai_response(ai_response, tenant_id, len(db_results))
         
-        # Post-process AI response
-        formatted_response = self._post_process_ai_response(ai_response, tenant_id, len(db_results))
+    async def _call_ollama_streaming(self, tenant_id: str, prompt: str, 
+                                temperature: float = 0.3) -> AsyncGenerator[Dict[str, Any], None]:
+        """🌊 Call Ollama with streaming for response generation"""
         
-        return formatted_response
-    
+        config = self.tenant_configs[tenant_id]
+        
+        payload = {
+            "model": config.model_name,
+            "prompt": prompt,
+            "stream": True,  # ← Streaming enabled
+            "options": {
+                "temperature": temperature,
+                "num_predict": 1500,
+                "top_k": 20,
+                "top_p": 0.8,
+                "repeat_penalty": 1.0,
+                "num_ctx": 4096
+            }
+        }
+        
+        try:
+            logger.info(f"🌊 Starting streaming AI call for {tenant_id}")
+            
+            async with aiohttp.ClientSession() as session:
+                async with session.post(
+                    f"{self.ollama_base_url}/api/generate",
+                    json=payload,
+                    timeout=aiohttp.ClientTimeout(total=self.request_timeout)
+                ) as response:
+                    
+                    if response.status == 200:
+                        full_response = ""
+                        
+                        async for line in response.content:
+                            if line:
+                                try:
+                                    line_str = line.decode('utf-8').strip()
+                                    if line_str:
+                                        chunk_data = json.loads(line_str)
+                                        chunk_text = chunk_data.get('response', '')
+                                        
+                                        if chunk_text:
+                                            full_response += chunk_text
+                                            
+                                            # Yield each chunk to user
+                                            yield {
+                                                "type": "response_chunk",
+                                                "content": chunk_text,
+                                                "tenant_id": tenant_id,
+                                                "accumulated": full_response
+                                            }
+                                        
+                                        # Check if complete
+                                        if chunk_data.get('done', False):
+                                            # Send completion signal
+                                            yield {
+                                                "type": "response_complete",
+                                                "content": "",
+                                                "final_response": self._post_process_ai_response(
+                                                    full_response, tenant_id, 0
+                                                ),
+                                                "tenant_id": tenant_id
+                                            }
+                                            break
+                                            
+                                except json.JSONDecodeError:
+                                    continue
+                    else:
+                        yield {
+                            "type": "error",
+                            "message": f"Ollama API error: HTTP {response.status}",
+                            "tenant_id": tenant_id
+                        }
+                        
+        except Exception as e:
+            logger.error(f"❌ Streaming AI call failed for {tenant_id}: {e}")
+            yield {
+                "type": "error", 
+                "message": f"AI streaming error: {str(e)}",
+                "tenant_id": tenant_id
+            }
+
+    async def _process_sql_unified_with_streaming_response(self, question: str, tenant_id: str, 
+                                                        intent_result: Dict) -> AsyncGenerator[Dict[str, Any], None]:
+        """🎯 SQL processing with streaming response generation"""
+        
+        self.stats['sql_queries'] += 1
+        
+        try:
+            # Step 1-5: Same as before (Non-streaming SQL generation)
+            schema_info = await self._get_schema_unified(tenant_id)
+            sql_prompt = self._generate_sql_prompt_unified(question, tenant_id, schema_info, intent_result)
+            
+            # SQL Generation: Non-streaming (for accuracy)
+            ai_response = await self._call_ollama_unified(tenant_id, sql_prompt)
+            sql_result = self._extract_sql_unified(ai_response, question)
+            
+            if not sql_result['success']:
+                yield {
+                    "type": "error",
+                    "message": f"SQL generation failed: {sql_result['error']}",
+                    "tenant_id": tenant_id
+                }
+                return
+            
+            sql_query = sql_result['sql']
+            
+            # Execute SQL
+            db_results = await self._execute_sql_unified(sql_query, tenant_id)
+            
+            # Send metadata first
+            yield {
+                "type": "metadata",
+                "sql_query": sql_query,
+                "db_results_count": len(db_results),
+                "tenant_id": tenant_id,
+                "status": "generating_response"
+            }
+            
+            # Step 6: Response Generation with Streaming
+            if self.enable_ai_responses and db_results:
+                async for chunk in self._generate_ai_response_streaming(
+                    question, db_results, tenant_id, sql_query
+                ):
+                    yield chunk
+            else:
+                # Fallback to hardcode
+                hardcode_response = self._format_response_hardcode(
+                    db_results, question, tenant_id, sql_query
+                )
+                yield {
+                    "type": "response_complete",
+                    "final_response": hardcode_response,
+                    "tenant_id": tenant_id,
+                    "method": "hardcode_fallback"
+                }
+                
+        except Exception as e:
+            yield {
+                "type": "error",
+                "message": f"Processing failed: {str(e)}",
+                "tenant_id": tenant_id
+            }
+
+    async def _generate_ai_response_streaming(self, question: str, db_results: List[Dict], 
+                                            tenant_id: str, sql_query: str) -> AsyncGenerator[Dict[str, Any], None]:
+        """🌊 Generate streaming AI response from database results"""
+        
+        try:
+            # Prepare prompt (same as before)
+            data_summary = self._prepare_data_summary_for_ai(db_results, tenant_id)
+            response_prompt = self._create_ai_response_prompt(
+                question, data_summary, tenant_id, 
+                self._get_business_context_unified(tenant_id),
+                self._get_business_emoji(tenant_id), 
+                sql_query
+            )
+            
+            # Stream the AI response
+            async for chunk in self._call_ollama_streaming(tenant_id, response_prompt):
+                yield chunk
+                
+        except Exception as e:
+            yield {
+                "type": "error",
+                "message": f"AI response streaming failed: {str(e)}",
+                "tenant_id": tenant_id
+            }
+
     def _prepare_data_summary_for_ai(self, db_results: List[Dict], tenant_id: str) -> str:
         """📋 Prepare database results summary for AI processing"""
         
