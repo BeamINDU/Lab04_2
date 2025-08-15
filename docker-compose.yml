@@ -295,22 +295,58 @@ services:
       - "3000:8080"
     environment:
       - ENV=development
-      - DEFAULT_USER_ROLE=admin
-      - WEBUI_SECRET_KEY=siamtech-secret-2024
+
+      # 🚨 AUTH SETTINGS
+      - WEBUI_AUTH_MODE=local
+      - ENABLE_LOCAL_AUTH=true
+      - ENABLE_TRUSTED_HEADER_AUTH=false
+      - DISABLE_AUTH_HEADER_VALIDATION=true
+      - ENABLE_OAUTH_SIGNUP=false
+      - ENABLE_SSO=false
+      - DISABLE_AUTO_LOGIN=true
+      - AUTO_CREATE_FIRST_ADMIN=false   # ปิด auto-create admin
+
+      # 🔧 USER REGISTRATION SETTINGS
+      - DEFAULT_USER_ROLE=user
       - ENABLE_SIGNUP=true
+      - ENABLE_USER_REGISTRATION=true
+      - SIGNUP_ENABLED=true
+      - ENABLE_SIGNUP_WITHOUT_VERIFICATION=true
+      - DISABLE_SIGNUP=false
+      - SHOW_ADMIN_DETAILS=false
+      - ENABLE_NEW_SIGNUP=true
+      - ENABLE_ADMIN_REGISTRATION_RESTRICTION=false
+      - MAX_USERS=100
+
+      # 🔧 ADMIN & USER CONTROL
+      - ENABLE_COMMUNITY_SHARING=false
+      - ENABLE_USER_DELETION=true
+      - ENABLE_MODEL_FILTER=false
+
+      # 🔧 SESSION & COOKIE SETTINGS
+      - WEBUI_SESSION_COOKIE_NAME=webui_session_v2
+      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
+      - WEBUI_SESSION_COOKIE_SECURE=false
+      - WEBUI_SESSION_COOKIE_HTTP_ONLY=true
+      - WEBUI_COOKIE_MAX_AGE=86400
+      - WEBUI_SESSION_TIMEOUT=3600
+
+      # 🔧 UI/UX SETTINGS
+      - ENABLE_LOGIN_FORM=true
+      - ENABLE_PASSWORD_RESET=true
+      - DEFAULT_LOCALE=th
+
+      # Company A Specific Settings
+      - WEBUI_SECRET_KEY=siamtech-secret-2024
       - OPENAI_API_BASE_URL=http://openwebui-proxy-company-a:8001/v1
       - OPENAI_API_KEY=sk-company-a-enhanced-llama31-8b
       - WEBUI_NAME=SiamTech Bangkok HQ - Enhanced AI Assistant (v2.0)
       - WEBUI_URL=http://localhost:3000
-      - DEFAULT_USER_ROLE=user
-      - ENABLE_SIGNUP=true
-      - SHOW_ADMIN_DETAILS=false
       - WEBUI_DESCRIPTION=Enhanced AI Assistant สำหรับสำนักงานใหญ่ กรุงเทพมหานคร (Smart SQL + Business Intelligence)
-      # Enhanced Theme
       - WEBUI_THEME_COLOR=#667eea
       - WEBUI_FEATURES=enhanced_sql,business_intelligence,pattern_matching
       - WEBUI_AUTH_REDIRECT_URL=/auth/signin
-      - WEBUI_SESSION_COOKIE_SAME_SITE=lax
+
       
     volumes:
       - open_webui_company_a_data:/app/backend/data
@@ -319,9 +355,16 @@ services:
     depends_on:
       - openwebui-proxy-company-a
     restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:8080/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
     labels:
       - "com.siamtech.company=a"
       - "com.siamtech.enhancement=v2.0"
+      - "com.siamtech.auth=local-fixed"
 
   # =============================================================================
   # COMPANY B - CHIANG MAI REGIONAL (Enhanced Integration)

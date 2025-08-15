@@ -2,9 +2,10 @@
 const nextConfig = {
   reactStrictMode: true,
   swcMinify: true,
-  experimental: {
-    appDir: false,
-  },
+  // ✅ FIXED: เอา appDir ออกเพราะใน Next.js 14 ไม่ต้องใช้แล้ว
+  // experimental: {
+  //   appDir: false,  // ❌ นี่คือปัญหา - เอาออก
+  // },
   async headers() {
     return [
       {

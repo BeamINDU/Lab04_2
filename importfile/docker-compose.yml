@@ -3,12 +3,12 @@ services:
   web:
     build: .
     ports:
-      - "3001:3000"
+      - "3001:3001"
     environment:
       - NODE_ENV=production
       - DATABASE_URL=postgresql://postgres:password@postgres:5432/company_management
       - NEXTAUTH_SECRET=your-secret-key-change-this
-      - NEXTAUTH_URL=http://localhost:3001
+      - NEXTAUTH_URL=http://0.0.0.0:3001
     depends_on:
       postgres:
         condition: service_healthy
@@ -16,9 +16,10 @@ services:
       - ./uploads:/app/uploads
     networks:
       - company-network
+      - chatbot_siamtech_network  # 🔥 เพิ่ม chatbot network
     restart: unless-stopped
 
-  # PostgreSQL Database
+  # PostgreSQL Database (เก็บไว้สำหรับ auth และ import logs)
   postgres:
     image: postgres:15-alpine
     environment:
@@ -32,6 +33,7 @@ services:
       - ./sql:/docker-entrypoint-initdb.d
     networks:
       - company-network
+      - chatbot_siamtech_network  # 🔥 เพิ่ม chatbot network
     healthcheck:
       test: ["CMD-SHELL", "pg_isready -U postgres"]
       interval: 5s
@@ -51,6 +53,7 @@ services:
       - postgres
     networks:
       - company-network
+      - chatbot_siamtech_network  # 🔥 เพิ่ม chatbot network
     restart: unless-stopped
 
 volumes:
@@ -59,3 +62,5 @@ volumes:
 networks:
   company-network:
     driver: bridge
+  chatbot_siamtech_network:
+    external: true
