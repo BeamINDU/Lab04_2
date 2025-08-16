@@ -1,4 +1,3 @@
-# Dockerfile
 FROM node:18-alpine
 
 # Install OpenSSL for Prisma
@@ -16,14 +15,21 @@ RUN npm ci --only=production
 # Generate Prisma Client
 RUN npx prisma generate
 
-# Copy source code
+# Copy scripts และ source code
+COPY scripts ./scripts/
 COPY . .
 
 # Build the application
 RUN npm run build
 
+# 🔥 รัน Database Setup ตอน Build (ถ้า DATABASE_URL available)
+RUN if [ "$NODE_ENV" = "production" ]; then \
+      npx prisma db push && \
+      node scripts/setup.js; \
+    fi
+
 # Expose port
-EXPOSE 3000
+EXPOSE 3001
 
 # Start the application
 CMD ["npm", "start"]
