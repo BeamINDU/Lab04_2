@@ -48,7 +48,20 @@ export default function Layout({ children }: LayoutProps) {
   ];
 
   const handleSignOut = async () => {
-    await signOut({ callbackUrl: '/auth/signin' });
+    try {
+      // Clear session และ redirect manual
+      await signOut({ redirect: false });
+      
+      // Force redirect ด้วย router
+      router.push('/auth/signin');
+      
+      // หรือถ้าต้องการ force reload page
+      window.location.href = '/auth/signin';
+    } catch (error) {
+      console.error('Logout error:', error);
+      // Fallback - force redirect
+      window.location.href = '/auth/signin';
+    }
   };
 
   return (
