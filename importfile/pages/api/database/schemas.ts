@@ -2,26 +2,7 @@
 import { NextApiRequest, NextApiResponse } from 'next';
 import { getServerSession } from 'next-auth';
 import { authOptions } from '../../../lib/auth';
-import { Pool } from 'pg';
-
-// Database connection with better error handling
-const createPool = () => {
-  try {
-    return new Pool({
-      user: process.env.DB_USER || 'postgres',
-      host: process.env.DB_HOST || 'localhost',
-      database: process.env.DB_NAME || 'company_management',
-      password: process.env.DB_PASSWORD || 'password',
-      port: parseInt(process.env.DB_PORT || '15432'), // ใช้ port ตาม docker-compose.yml
-      max: 10,
-      idleTimeoutMillis: 30000,
-      connectionTimeoutMillis: 5000,
-    });
-  } catch (error) {
-    console.error('Failed to create database pool:', error);
-    throw error;
-  }
-};
+import { getCompanyDatabase, testDatabaseConnection, getConnectionInfo } from '../../../lib/database';
 
 export default async function handler(req: NextApiRequest, res: NextApiResponse) {
   console.log(`📍 API ${req.method} /api/database/schemas called`);
@@ -37,10 +18,21 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
     console.log(`✅ Authenticated user: ${session.user.email}`);
     console.log(`🏢 Company: ${session.user.companyCode}`);
 
+    // Get company code from session
+    const companyCode = session.user.companyCode;
+    if (!companyCode) {
+      console.log('❌ No company code in session');
+      return res.status(400).json({ error: 'Company code not found in session' });
+    }
+
+    // Log connection info for debugging
+    const connInfo = getConnectionInfo(companyCode);
+    console.log('🔧 Database connection info:', connInfo);
+
     if (req.method === 'GET') {
-      return await handleGetSchemas(req, res, session);
+      return await handleGetSchemas(req, res, session, companyCode);
     } else if (req.method === 'POST') {
-      return await handleCreateSchema(req, res, session);
+      return await handleCreateSchema(req, res, session, companyCode);
     } else {
       res.setHeader('Allow', ['GET', 'POST']);
       return res.status(405).json({ error: `Method ${req.method} Not Allowed` });
@@ -55,56 +47,20 @@ export default async function handler(req: NextApiRequest, res: NextApiResponse)
   }
 }
 
-async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, session: any) {
-  console.log('📋 Getting schemas...');
+async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, session: any, companyCode: string) {
+  console.log('📋 Getting schemas for company:', companyCode);
   
-  let pool: Pool | null = null;
-  let client = null;
-
   try {
-    // สำหรับการทดสอบ ให้ return mock data ก่อน
-    if (process.env.NODE_ENV === 'development' && !process.env.DB_PASSWORD) {
-      console.log('🧪 Using mock data for development');
-      const mockSchemas = [
-        {
-          name: 'public',
-          type: 'default',
-          description: 'Default public schema',
-          tables: ['employees', 'projects', 'departments'],
-          tableDetails: [
-            { name: 'employees', comment: 'Employee information' },
-            { name: 'projects', comment: 'Project data' },
-            { name: 'departments', comment: 'Department structure' }
-          ],
-          createdAt: new Date().toISOString()
-        },
-        {
-          name: 'analytics',
-          type: 'custom',
-          description: 'Analytics and reporting schema',
-          tables: ['reports', 'metrics'],
-          tableDetails: [
-            { name: 'reports', comment: 'Generated reports' },
-            { name: 'metrics', comment: 'Performance metrics' }
-          ],
-          createdAt: new Date().toISOString()
-        }
-      ];
-
-      return res.status(200).json({ 
-        success: true,
-        schemas: mockSchemas,
-        company: session.user.companyCode,
-        mode: 'mock'
-      });
+    // Test connection first
+    const isConnected = await testDatabaseConnection(companyCode);
+    if (!isConnected) {
+      console.log('❌ Database connection failed, returning fallback data');
+      return returnFallbackData(res, companyCode, 'Database connection failed');
     }
 
-    // Real database connection
-    pool = createPool();
-    client = await pool.connect();
+    // Get database pool
+    const pool = getCompanyDatabase(companyCode);
     
-    console.log('✅ Database connected successfully');
-
     // Get all schemas with their tables
     const schemasQuery = `
       SELECT 
@@ -112,8 +68,13 @@ async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, sessi
         obj_description(oid, 'pg_namespace') as description
       FROM information_schema.schemata s
       LEFT JOIN pg_namespace n ON n.nspname = s.schema_name
-      WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
-      ORDER BY schema_name;
+      WHERE schema_name NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
+      ORDER BY 
+        CASE 
+          WHEN schema_name = 'public' THEN 0 
+          ELSE 1 
+        END,
+        schema_name;
     `;
 
     const tablesQuery = `
@@ -123,19 +84,18 @@ async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, sessi
         obj_description(pgc.oid, 'pg_class') as table_comment
       FROM information_schema.tables t
       LEFT JOIN pg_class pgc ON pgc.relname = t.table_name
-      WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast')
+      WHERE table_schema NOT IN ('information_schema', 'pg_catalog', 'pg_toast', 'pg_temp_1', 'pg_toast_temp_1')
       AND table_type = 'BASE TABLE'
       ORDER BY table_schema, table_name;
     `;
 
-    console.log('🔍 Executing schema queries...');
+    console.log('🔍 Executing database queries...');
     const [schemasResult, tablesResult] = await Promise.all([
-      client.query(schemasQuery),
-      client.query(tablesQuery)
+      pool.query(schemasQuery),
+      pool.query(tablesQuery)
     ]);
 
-    console.log(`📊 Found ${schemasResult.rows.length} schemas`);
-    console.log(`📊 Found ${tablesResult.rows.length} tables`);
+    console.log(`📊 Found ${schemasResult.rows.length} schemas and ${tablesResult.rows.length} tables`);
 
     // Group tables by schema
     const tablesBySchema = tablesResult.rows.reduce((acc: any, table: any) => {
@@ -144,7 +104,7 @@ async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, sessi
       }
       acc[table.table_schema].push({
         name: table.table_name,
-        comment: table.table_comment
+        comment: table.table_comment || `Table in ${table.table_schema} schema`
       });
       return acc;
     }, {});
@@ -152,7 +112,7 @@ async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, sessi
     // Combine schemas with their tables
     const schemas = schemasResult.rows.map((schema: any) => ({
       name: schema.schema_name,
-      description: schema.description,
+      description: schema.description || (schema.schema_name === 'public' ? 'Default public schema' : `Custom schema: ${schema.schema_name}`),
       type: schema.schema_name === 'public' ? 'default' : 'custom',
       tables: (tablesBySchema[schema.schema_name] || []).map((t: any) => t.name),
       tableDetails: tablesBySchema[schema.schema_name] || [],
@@ -164,55 +124,19 @@ async function handleGetSchemas(req: NextApiRequest, res: NextApiResponse, sessi
     return res.status(200).json({
       success: true,
       schemas,
-      company: session.user.companyCode
+      company: companyCode,
+      mode: 'live',
+      connectionInfo: getConnectionInfo(companyCode)
     });
 
   } catch (error) {
     console.error('❌ Database error:', error);
-    
-    // Return mock data as fallback
-    console.log('🔄 Falling back to mock data');
-    const fallbackSchemas = [
-      {
-        name: 'public',
-        type: 'default',
-        description: 'Default public schema (fallback)',
-        tables: [],
-        tableDetails: [],
-        createdAt: new Date().toISOString()
-      }
-    ];
-
-    return res.status(200).json({
-      success: true,
-      schemas: fallbackSchemas,
-      company: session.user.companyCode,
-      mode: 'fallback',
-      warning: 'Database connection failed, using fallback data'
-    });
-
-  } finally {
-    if (client) {
-      try {
-        client.release();
-        console.log('🔌 Database client released');
-      } catch (error) {
-        console.error('❌ Error releasing client:', error);
-      }
-    }
-    if (pool) {
-      try {
-        await pool.end();
-        console.log('🔌 Database pool closed');
-      } catch (error) {
-        console.error('❌ Error closing pool:', error);
-      }
-    }
+    return returnFallbackData(res, companyCode, `Database error: ${error instanceof Error ? error.message : 'Unknown error'}`);
   }
 }
 
-async function handleCreateSchema(req: NextApiRequest, res: NextApiResponse, session: any) {
-  console.log('➕ Creating new schema...');
+async function handleCreateSchema(req: NextApiRequest, res: NextApiResponse, session: any, companyCode: string) {
+  console.log('➕ Creating new schema for company:', companyCode);
   
   const { name, description } = req.body;
   
@@ -220,74 +144,85 @@ async function handleCreateSchema(req: NextApiRequest, res: NextApiResponse, ses
     return res.status(400).json({ error: 'Schema name is required' });
   }
 
-  // For development, return success without database operation
-  if (process.env.NODE_ENV === 'development' && !process.env.DB_PASSWORD) {
-    console.log(`🧪 Mock schema creation: ${name}`);
-    return res.status(201).json({ 
-      success: true, 
-      message: `Schema "${name}" created successfully (mock)`,
-      mode: 'mock'
+  // Validate schema name
+  const schemaNameRegex = /^[a-zA-Z_][a-zA-Z0-9_]*$/;
+  if (!schemaNameRegex.test(name)) {
+    return res.status(400).json({ 
+      error: 'Invalid schema name. Use only letters, numbers, and underscores. Must start with letter or underscore.' 
     });
   }
 
-  let pool: Pool | null = null;
-  let client = null;
-
   try {
-    pool = createPool();
-    client = await pool.connect();
-    
-    await client.query('BEGIN');
+    // Test connection first
+    const isConnected = await testDatabaseConnection(companyCode);
+    if (!isConnected) {
+      return res.status(500).json({ 
+        error: 'Database connection failed',
+        mode: 'offline'
+      });
+    }
+
+    const pool = getCompanyDatabase(companyCode);
     
     // Create schema
-    await client.query(`CREATE SCHEMA IF NOT EXISTS "${name}"`);
-    
+    const createSchemaSQL = `CREATE SCHEMA IF NOT EXISTS "${name}";`;
+    await pool.query(createSchemaSQL);
+
     // Add comment if description provided
-    if (description) {
-      await client.query(
-        `COMMENT ON SCHEMA "${name}" IS $1`,
-        [description]
-      );
+    if (description && description.trim()) {
+      const commentSQL = `COMMENT ON SCHEMA "${name}" IS $1;`;
+      await pool.query(commentSQL, [description]);
     }
-    
-    await client.query('COMMIT');
-    
-    console.log(`✅ Schema "${name}" created successfully`);
-    
+
+    console.log(`✅ Schema "${name}" created for company ${companyCode} by ${session.user.email}`);
+
     return res.status(201).json({ 
       success: true, 
-      message: `Schema "${name}" created successfully` 
+      message: `Schema "${name}" created successfully`,
+      schema: { 
+        name, 
+        description: description || null,
+        type: 'custom',
+        companyCode 
+      }
     });
 
   } catch (error) {
-    if (client) {
-      try {
-        await client.query('ROLLBACK');
-      } catch (rollbackError) {
-        console.error('❌ Rollback error:', rollbackError);
-      }
-    }
+    console.error('❌ Error creating schema:', error);
     
-    console.error('❌ Schema creation error:', error);
-    return res.status(500).json({ 
+    if (error instanceof Error && error.message.includes('already exists')) {
+      return res.status(409).json({
+        error: `Schema "${name}" already exists`,
+        details: error.message
+      });
+    }
+
+    return res.status(500).json({
       error: 'Failed to create schema',
       details: error instanceof Error ? error.message : 'Unknown error'
     });
-
-  } finally {
-    if (client) {
-      try {
-        client.release();
-      } catch (error) {
-        console.error('❌ Error releasing client:', error);
-      }
-    }
-    if (pool) {
-      try {
-        await pool.end();
-      } catch (error) {
-        console.error('❌ Error closing pool:', error);
-      }
-    }
   }
+}
+
+function returnFallbackData(res: NextApiResponse, companyCode: string, reason: string) {
+  console.log('🔄 Returning fallback data for company:', companyCode);
+  
+  const fallbackSchemas = [
+    {
+      name: 'public',
+      type: 'default',
+      description: 'Default public schema (fallback - no connection)',
+      tables: [],
+      tableDetails: [],
+      createdAt: new Date().toISOString()
+    }
+  ];
+
+  return res.status(200).json({
+    success: true,
+    schemas: fallbackSchemas,
+    company: companyCode,
+    mode: 'fallback',
+    warning: reason
+  });
 }
