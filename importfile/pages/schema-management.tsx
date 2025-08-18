@@ -4,7 +4,7 @@ import { getServerSession } from 'next-auth';
 import { authOptions } from '../lib/auth';
 import AuthGuard from '../components/AuthGuard';
 import Layout from '../components/Layout';
-import SchemaManagementSystem from '../components/SchemaManagementSystem';
+import SchemaManagementSystem from '../components/CompleteSchemaManagementSystem';
 
 export default function SchemaManagementPage() {
   return (
